@@ -1,0 +1,20 @@
+INCLUDES = -I$(top_srcdir)
+
+plugindir = @plugindir@
+
+plugin_LTLIBRARIES = |PLUGIN_NAME|.la
+|PLUGIN_NAME|_la_SOURCES = packet-|PLUGIN_NAME|.c moduleinfo.h 
+|PLUGIN_NAME|_la_LDFLAGS = -module -avoid-version -shared -Wl,-soname,|PLUGIN_NAME|.so -o |PLUGIN_NAME|.so
+|PLUGIN_NAME|_la_LIBADD = @PLUGIN_LIBS@ 
+
+# Libs must be cleared, or else libtool won't create a shared module.
+# If your module needs to be linked against any particular libraries,
+# add them here.
+LIBS = |GLUE_O_FILE| |PROTO_O_FILE| -lprotobuf
+
+CLEANFILES = \
+	|PLUGIN_NAME| \
+	*~
+
+EXTRA_DIST = \
+   Makefile.nmake

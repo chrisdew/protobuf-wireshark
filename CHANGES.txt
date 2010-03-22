@@ -1,0 +1,6 @@
+Version 0.2 (September 9, 2008)
+-------------------------------
+
+1. Support for generic dissector that displays field id: vlaue tags
+without requiring .proto file.
+
