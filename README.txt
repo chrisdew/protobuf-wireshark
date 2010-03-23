@@ -3,7 +3,7 @@ Generating Wireshark/Ethereal plugins for Google Protocol Buffers
 Dilip Antony Joseph (dilip.antony.joseph at gmail.com)
 http://code.google.com/p/protobuf-wireshark/
 
-Version 0.2 (September 9, 2008)
+Version 0.3 (March 23, 2010)
 
 
 We can generate two types of Wireshark dissector plugins:
@@ -66,31 +66,24 @@ port_num              : 33445
 
 a. name                   :   The name of the top-level message we are 
                               interested in, i.e., AddressBook in this example.
-b. package                :   The package definition in  the .proto file
-c. proto_file             :   Absolute path to the .proto file
+b. package                :   The package definition in  the .proto file[optional]
+c. proto_file             :   Absolute path to all .proto files
 d. wireshark_src_dir      :   Absolute path to the wireshark source files
                               directory, i.e., WSRC_DIR
 e. wireshark_install_dir  :   Absolute path to the directory in wireshark is
-                              installed, i.e., WINSTALL_DIR
+                              installed, i.e., WINSTALL_DIR[optional]
 f. wireshark_version      :   1.0.2 or whatever other version you are using
 g. port_num               :   Wireshark will automatically try to decode UDP
                               packets with this port number as AddressBook
                               messages.  By default, port num is 60000.
 
-Step 4: Edit WSRC_DIR/configure.in and WSRC_DIR/plugins/Makefile.am
-===================================================================
-WSRC_DIR/configure.in         : Add "plugins/AddressBook/Makefile" line 
-                                to AC_OUTPUT
-WSRC_DIR/plugins/Makefile.am  : Add "AddressBook" line to SUBDIRS
-
-
-Step 5: Run make_wireshark_plugin.py
+Step 4: Run make_wireshark_plugin.py
 ====================================
 a. $ cd CURR_DIR
 b. $ ./make_wireshark_plugin.py addressbook.conf
 c. Watch out for any errors.
 
-Step 6: Done
+Step 5: Done
 ============
 a. Start wireshark and check if AddressBook shows in "Analyze >> Enabled
 Protocls" menu.

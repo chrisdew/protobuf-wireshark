@@ -1,6 +1,10 @@
-Version 0.2 (September 9, 2008)
+Version 0.3 (March 23, 2010)
 -------------------------------
 
-1. Support for generic dissector that displays field id: vlaue tags
-without requiring .proto file.
-
+1. Specific dissector now has support for collapsible trees under Wireshark. This
+   also gives the ability to filter protobuf messages based on proto field names. 
+2. package/wireshark_install_dir parameters in conf file are now optional. They will
+   be used if present
+3. For specific dissector wireshark/configure.in and wireshark/plugins/Makefile.am neednt
+   be modified to contain plugin name etc. The generating script automatically takes
+   care of adding the correct entries to each file if not already present.
