@@ -5,10 +5,13 @@
 #include <list>
 
 #include <google/protobuf/text_format.h>
+#include <google/protobuf/wire_format.h>
+#include <google/protobuf/io/coded_stream.h>
 
 using namespace std;
 using namespace google;
 using namespace protobuf;
+using namespace internal;
 
 extern "C" {
 
@@ -105,15 +108,36 @@ typedef std::vector<const FieldDescriptor*> FieldDescriptorList;
 typedef struct MessageContext
 {
   proto_tree* tree;
+  int offset;
+  int len;   // total length of message including overhead
+  int prefix_len;  // size of overhead
   const Message* message;
   const std::string* label;
   int index;
   
   MessageContext()
-    : tree( NULL ), message( NULL ), label( NULL ), index( -1 ) {}
+    : tree( NULL ), offset( 0 ), len( 0 ), prefix_len( -1 ), 
+      message( NULL ), label( NULL ), index( -1 ) {}
   
-  MessageContext( proto_tree* tr, const Message* mess, const std::string* str, int idx = -1 )
-    : tree( tr ), message( mess ), label( str ), index( idx ) {}
+  MessageContext( proto_tree* tr, int off, int pref,
+		  const Message* mess, const std::string* str, int idx = -1 )
+    : tree( tr ), offset( off ), prefix_len( pref ), 
+      message( mess ), label( str ), index( idx ) 
+  {
+    int data_size = message->ByteSize();
+    
+    int total_size = data_size;
+
+    if( prefix_len == -1 )
+    {
+      prefix_len = WireFormat::TagSize( message->GetDescriptor()->index(), 
+			       FieldDescriptor::TYPE_MESSAGE );
+      prefix_len+= io::CodedOutputStream::VarintSize32(data_size);
+      total_size+= prefix_len;
+    }
+
+    len = total_size;
+  }
   
 } MessageContext;
 
@@ -272,7 +296,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 }
 
 void wireshark_pb_process_|PLUGIN_NAME|_message( const Message& message, proto_tree* tree,
-						 tvbuff_t* tvb, int& offset )
+						 tvbuff_t* tvb, int& off )
 {
 
   typedef std::list<MessageContext> MessageContextList;
@@ -280,7 +304,9 @@ void wireshark_pb_process_|PLUGIN_NAME|_message( const Message& message, proto_t
   MessageContextList messageContextList;
 
   // we process the message tree breadth wise
-  messageContextList.push_back( MessageContext( tree, &message, &( message.GetDescriptor()->name() ) ) );
+  messageContextList.push_back( MessageContext( tree, off, 0,
+						&message, 
+						&( message.GetDescriptor()->name() ), -1 ) );
 
   while ( !messageContextList.empty() )
   {
@@ -289,9 +315,12 @@ void wireshark_pb_process_|PLUGIN_NAME|_message( const Message& message, proto_t
 
     proto_tree* current_tree = messageContext.tree;
     const Message& currentMessage = *(messageContext.message);
-    int len = currentMessage.ByteSize();
+    int offset = messageContext.offset;
+    int len = messageContext.len;
 
-    DBG( "Dissecting " << currentMessage.GetDescriptor()->name() << " of length " << len );
+    DBG( "Dissecting " << currentMessage.GetDescriptor()->name() 
+	 << " of length " << len
+	 << " prefix len " << messageContext.prefix_len );
 
     HandleMap::iterator it = handleMap->find( currentMessage.GetDescriptor()->full_name() );
 
@@ -308,17 +337,19 @@ void wireshark_pb_process_|PLUGIN_NAME|_message( const Message& message, proto_t
     if( messageContext.index == -1 )
     {
       item = proto_tree_add_none_format( current_tree, handles.handle, tvb, 
-					 offset, 0, 
+					 offset, len, 
 					 messageContext.label->c_str() );
     }
     else
     {
       item = proto_tree_add_none_format( current_tree, handles.handle, tvb, 
-					 offset, 0, "%s[%d]", 
+					 offset, len, "%s[%d]", 
 					 messageContext.label->c_str(), messageContext.index );
       
     }
     proto_tree* leaf = proto_item_add_subtree( item, *(handles.tree_handle) );
+
+    offset+= messageContext.prefix_len;
 
     // now loop through all the field in current message
     const Reflection* reflection = currentMessage.GetReflection();
@@ -334,15 +365,27 @@ void wireshark_pb_process_|PLUGIN_NAME|_message( const Message& message, proto_t
 	int size = reflection->FieldSize( currentMessage, field );
 	for( int i = 0; i < size; i++ )
 	{
-	  const Message& subMessage = reflection->GetRepeatedMessage( currentMessage, field, i );
-	  messageContextList.push_back( MessageContext( leaf, &subMessage, &( field->name() ), i ) );
+	  const Message& subMessage = reflection->GetRepeatedMessage( currentMessage, 
+								      field, i );
+	  MessageContext context( leaf, 
+				  offset,
+				  -1,
+				  &subMessage, 
+				  &( field->name() ), i );
+	  messageContextList.push_back( context );
+	  offset+= context.len;
 	}
       }
       else if( field->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE ) 
       {
-	messageContextList.push_back( MessageContext( leaf,
-						      &reflection->GetMessage( currentMessage, field ),
-						      &( field->name() ) ) );
+	  const Message& subMessage = reflection->GetMessage( currentMessage, field );
+	  MessageContext context( leaf, 
+				  offset,
+                                  -1,
+				  &subMessage, 
+				  &( field->name() ) );
+	  messageContextList.push_back( context );
+	  offset+= context.len;
       }
       else // plain simple field. process it immediately
       {
@@ -362,7 +405,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_field( const Reflection* reflection,
 					       proto_tree* tree, 
 					       tvbuff_t* tvb, int& offset )
 {
-    int len = 0;
+    int len = WireFormat::FieldByteSize( field, message );
 
     DBG( "Dissecting field " << field->name() << " " << len );
 
@@ -381,49 +424,41 @@ void wireshark_pb_process_|PLUGIN_NAME|_field( const Reflection* reflection,
     switch( field->cpp_type() )
     {
     case FieldDescriptor::CPPTYPE_UINT32:
-      len = 4;
-      proto_tree_add_uint( tree, handles.handle, tvb, offset, 0, reflection->GetUInt32( message, field ) );
+      proto_tree_add_uint( tree, handles.handle, tvb, offset, len, reflection->GetUInt32( message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_INT32:
-      len = 4;
-      proto_tree_add_int( tree, handles.handle, tvb, offset, 0, reflection->GetInt32( message, field ) );
+      proto_tree_add_int( tree, handles.handle, tvb, offset, len, reflection->GetInt32( message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_FLOAT:
-      len = 4;
-      proto_tree_add_float( tree, handles.handle, tvb, offset, 0, reflection->GetFloat( message, field ) );
+      proto_tree_add_float( tree, handles.handle, tvb, offset, len, reflection->GetFloat( message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
-      len = 8;
-      proto_tree_add_uint64( tree, handles.handle, tvb, offset, 0, reflection->GetUInt64( message, field ) );
+      proto_tree_add_uint64( tree, handles.handle, tvb, offset, len, reflection->GetUInt64( message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_INT64:
-      len = 8;
-      proto_tree_add_int64( tree, handles.handle, tvb, offset, 0, reflection->GetInt64( message, field ) );
+      proto_tree_add_int64( tree, handles.handle, tvb, offset, len, reflection->GetInt64( message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_DOUBLE:
-      len = 8;       
-      proto_tree_add_double( tree, handles.handle, tvb, offset, 0, reflection->GetDouble( message, field ) );
+      proto_tree_add_double( tree, handles.handle, tvb, offset, len, reflection->GetDouble( message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
-      proto_tree_add_boolean( tree, handles.handle, tvb, offset, 0, reflection->GetBool( message, field ) );
+      proto_tree_add_boolean( tree, handles.handle, tvb, offset, len, reflection->GetBool( message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_ENUM:
       enumDesc = reflection->GetEnum( message, field );
-      proto_tree_add_int_format_value( tree, handles.handle, tvb, offset, 0, 
+      proto_tree_add_int_format_value( tree, handles.handle, tvb, offset, len, 
 				       enumDesc->number(), "%d ( %s )", enumDesc->number(),
 				       enumDesc->name().c_str() );
       break;
     case FieldDescriptor::CPPTYPE_STRING:
-      proto_tree_add_string( tree, handles.handle, tvb, offset, 0, 
+      proto_tree_add_string( tree, handles.handle, tvb, offset, len, 
 			     reflection->GetString( message, field ).c_str() );
       break;
     default:
-      proto_tree_add_item( tree, handles.handle, tvb, offset, 0, true );
+      proto_tree_add_item( tree, handles.handle, tvb, offset, len, true );
     };
 
-    // we really dont know how the bytes are encoded in protobuf, so we dont know the actual
-    // length of each field
-    //offset+=len;
+    offset+=len;
 }
 
 }
