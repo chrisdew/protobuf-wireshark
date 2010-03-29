@@ -188,9 +188,9 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 
   
 |PLUGIN_NAME|_Dissector::|PLUGIN_NAME|_Dissector( proto_tree* tree, int offset, int prefix,
-				    const Message* mess, 
-				    const std::string* str, 
-				    int idx )
+						  const Message* mess, 
+						  const std::string* str, 
+						  int idx )
   : _index( idx ), 
     _label( str ),
     _leaf( NULL ),
@@ -215,7 +215,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 
     _len = total_size;
 
-    // construct subtree here itself rather than in dissect otherwise
+    // construct subtree here itself rather than in dissect method otherwise
     // all repeated fields and messages are pushed to end of current tree
     // regardless of their current position
     HandleMap::iterator it = handleMap->find( _message->GetDescriptor()->full_name() );
@@ -278,10 +278,10 @@ void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
 	  const Message& subMessage = _reflection->GetRepeatedMessage( *_message, 
 								       field, i );
 	  |PLUGIN_NAME|_Dissector dissector( _leaf, 
-				      _offset,
-				      -1,
-				      &subMessage, 
-				      &( field->name() ), i );
+					     _offset,
+					     -1,
+					     &subMessage, 
+					     &( field->name() ), i );
 	  dissectorList.push_back( dissector );
 	  _offset+= dissector.messageLength();
 	}
@@ -290,10 +290,10 @@ void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
       {
 	const Message& subMessage = _reflection->GetMessage( *_message, field );
 	|PLUGIN_NAME|_Dissector dissector( _leaf, 
-				    _offset,
-				    -1,
-				    &subMessage, 
-				    &( field->name() ) );
+					   _offset,
+					   -1,
+					   &subMessage, 
+					   &( field->name() ) );
 	dissectorList.push_back( dissector );
 	_offset+= dissector.messageLength();
       }
