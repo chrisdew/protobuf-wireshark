@@ -34,6 +34,8 @@ def process_template(template_file, outfile_path):
   rePROTO_H_FILE = re.compile(r'\|PROTO_H_FILE\|')
   rePROTO_O_FILE = re.compile(r'\|PROTO_O_FILE\|')
   reGLUE_O_FILE = re.compile(r'\|GLUE_O_FILE\|')
+  reGLUE_H_FILE = re.compile(r'\|GLUE_H_FILE\|')
+  reGLUE_H_DEFINE_NAME = re.compile(r'\|GLUE_H_DEFINE_NAME\|')
   rePACKAGE = re.compile(r'\|PACKAGE\|')
   rePORT_NUM = re.compile(r'\|PORT_NUM\|')
   
@@ -44,6 +46,8 @@ def process_template(template_file, outfile_path):
     line = rePROTO_H_FILE.sub(main_proto_h_file_name, line)
     line = rePROTO_O_FILE.sub(proto_o_file_names, line)
     line = reGLUE_O_FILE.sub(glue_o_file_name, line)
+    line = reGLUE_H_FILE.sub(glue_h_file_name, line)
+    line = reGLUE_H_DEFINE_NAME.sub(glue_h_define_name, line)
     line = rePORT_NUM.sub(port_num, line)
     if (proto_package and not (proto_package == "")):
       line = rePACKAGE.sub(proto_package + '::', line)
@@ -88,14 +92,15 @@ proto_package = plugin_conf['package']
 
 glue_file_name = 'wireshark-glue-' + plugin_name + '.cc'
 glue_o_file_name = os.path.splitext(glue_file_name)[0] + '.o'
-glue_c_file_name = os.path.splitext(glue_file_name)[0] + '.c'
-
+glue_h_file_name = os.path.splitext(glue_file_name)[0] + '.h'
+glue_h_define_name = glue_h_file_name.replace("-","_").replace(".","_")
 plugin_so_file_name = '.libs/' + plugin_name + '.so'
 
 process_template('packet.c.template', plugin_dir + '/packet-' + plugin_name + '.c')
 process_template('Makefile.am.template', plugin_dir + '/Makefile.am')
 process_template('moduleinfo.h.template', plugin_dir + '/moduleinfo.h')
 process_template('wireshark-glue.cc.template', proto_dir + '/' + glue_file_name)
+process_template('wireshark-glue.h.template', proto_dir + '/' + glue_h_file_name)
 
 curr_dir = os.getcwd()
 os.chdir(wireshark_src_dir)
