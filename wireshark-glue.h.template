@@ -3,8 +3,6 @@
 
 #include <string>
 #include <list>
-#include <map>
-#include <vector>
 
 extern "C" {
 
@@ -84,20 +82,6 @@ extern void wireshark_pb_process_|PLUGIN_NAME|_register_field( int proto, int ty
 // rest of definitions are specific to the glue file
 //////////////////////////////////////////////////////////////////////////////////
 
-#define DBG( x ) { std::cout << x << std::endl; }
-#define DBG_ERR( x ) { std::cerr << x << std::endl; }
-
-typedef struct Handles
-{
-   int handle;
-   int * tree_handle;
-
-   Handles() : handle( -1 ), tree_handle( NULL ) {}
-} Handles;
-
-typedef std::pair<std::string, Handles> StringHandlePair;
-typedef std::map<std::string, Handles> HandleMap;
-
 //fwd declarations
 namespace google
 {
@@ -110,10 +94,14 @@ class Reflection;
 }
 }
 
+class MessageDissector;
+struct Handles;
+
+typedef std::pair<std::string, Handles> StringHandlePair;
+typedef std::map<std::string, Handles> HandleMap;
+
 typedef std::vector<const google::protobuf::Descriptor*> DescriptorList;
 typedef std::vector<const google::protobuf::FieldDescriptor*> FieldDescriptorList;
-
-class MessageDissector;
 
 typedef std::list<MessageDissector> MessageDissectorList;
 
@@ -121,20 +109,23 @@ typedef std::list<MessageDissector> MessageDissectorList;
 
 class MessageDissector
 {  
-public:
+
+public: // methods
+
   // default ctor to satisfy std::list
   MessageDissector();
 
   // actual ctor that is used
-  MessageDissector( proto_tree* tr, int off, int prefix_len,
-		    const google::protobuf::Message* mess, const std::string* str, int idx = -1 );
+  MessageDissector( proto_tree* tree, int offset, int prefix_len,
+		    const google::protobuf::Message* mess, 
+		    const std::string* str, int idx = -1 );
 
   // main dissect method
-  void dissect( MessageDissectorList& list, void * tvb );
+  void dissect( MessageDissectorList& list );
 
-protected:
+protected: // methods
 
-  void dissectField( const google::protobuf::FieldDescriptor* field, void * tvb );
+  void dissectField( const google::protobuf::FieldDescriptor* field );
 
   // returns total length of message as seen in byte stream
   // this will be data size + encoding length of tag + data_size length
@@ -143,7 +134,7 @@ protected:
     return _len;
   }
 
-private:
+private: // data
 
   // index for repeated fields
   int _index;  
@@ -169,12 +160,21 @@ private:
   // reflection pointer cache
   const google::protobuf::Reflection* _reflection;
 
-  // root tree of this message
   proto_tree* _tree;
-
 };
 
-} // extern "C"
+typedef struct Handles
+{
+   int handle;
+   int * tree_handle;
+
+   Handles() : handle( -1 ), tree_handle( NULL ) {}
+} Handles;
+
+#define DBG( x ) { std::cout << x << std::endl; }
+#define DBG_ERR( x ) { std::cerr << x << std::endl; }
+
+} // of extern "C"
 
 #endif
 

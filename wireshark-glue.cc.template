@@ -14,7 +14,9 @@ using namespace internal;
 
 extern "C" {
 
-static HandleMap* handleMap = NULL;
+static HandleMap* |PLUGIN_NAME|_handleMap = NULL;
+
+static void * _tvb = NULL;
 
 /**
   * @param buf The message contents
@@ -39,6 +41,9 @@ int wireshark_pb_process_|PLUGIN_NAME|(proto_tree* tree_root, int item_id, tvbuf
     return -1;
   }
 
+  // store tvb for subsequent calls
+  _tvb = tvb;
+
   int offset = 0; 
 
   MessageDissectorList messageDissectorList;
@@ -54,7 +59,7 @@ int wireshark_pb_process_|PLUGIN_NAME|(proto_tree* tree_root, int item_id, tvbuf
     messageDissectorList.pop_front();
 
     // this can add further entries to message dissector list
-    messageDissector.dissect( messageDissectorList, tvb );
+    messageDissector.dissect( messageDissectorList );
   } // while( !messageDissectorList.empty() )
 
   return 0;
@@ -68,7 +73,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( int proto,
    wireshark_pb_process_|PLUGIN_NAME|_register_subtree( proto,
 							name.c_str(),
 							&(handles.handle), &(handles.tree_handle) );
-   handleMap->insert( StringHandlePair( full_name, handles ) );
+   |PLUGIN_NAME|_handleMap->insert( StringHandlePair( full_name, handles ) );
 }
 
 int wireshark_pb_process_|PLUGIN_NAME|_get_type( FieldDescriptor::CppType type )
@@ -105,9 +110,9 @@ int wireshark_pb_process_|PLUGIN_NAME|_get_type( FieldDescriptor::CppType type )
 
 void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 {
-  if( handleMap == NULL )
+  if( |PLUGIN_NAME|_handleMap == NULL )
   {
-    handleMap = new HandleMap();
+    |PLUGIN_NAME|_handleMap = new HandleMap();
   }
 
   DescriptorList messageDescriptorList;
@@ -165,7 +170,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 						       fieldDescriptor->name().c_str(),
 						       fieldDescriptor->name().c_str(),
 						       &(handles.handle) );
-    handleMap->insert( StringHandlePair( fieldDescriptor->full_name(), handles ) );
+    |PLUGIN_NAME|_handleMap->insert( StringHandlePair( fieldDescriptor->full_name(), handles ) );
   }
 }
 
@@ -177,23 +182,23 @@ MessageDissector::MessageDissector()
     _message( NULL ),
     _offset( 0 ),
     _prefix_len( -1 ),
-    _reflection( NULL ),
-    _tree( NULL )
+    _reflection( NULL )
 {
 }
 
   
-MessageDissector::MessageDissector( proto_tree* tree, int off, int prefix,
-				    const Message* mess, const std::string* str, int idx )
+MessageDissector::MessageDissector( proto_tree* tree, int offset, int prefix,
+				    const Message* mess, 
+				    const std::string* str, 
+				    int idx )
   : _index( idx ), 
     _label( str ),
     _leaf( NULL ),
     _len( -1 ),
     _message( mess ),
-    _offset( off ),
+    _offset( offset ),
     _prefix_len( prefix ),
-    _reflection( _message->GetReflection() ),
-    _tree( tree )
+    _reflection( _message->GetReflection() )
 {
     int data_size = _message->ByteSize();
     
@@ -209,17 +214,17 @@ MessageDissector::MessageDissector( proto_tree* tree, int off, int prefix,
     }
 
     _len = total_size;
-}
 
-void MessageDissector::dissect( MessageDissectorList& messageDissectorList, void * tvb )
-{
-    DBG( "Dissecting " << _message->GetDescriptor()->name() 
-	 << " of length " << _len
-	 << " prefix len " << _prefix_len );
+    DBG("**print handleMap" );
+    for( HandleMap::iterator it = |PLUGIN_NAME|_handleMap->begin(); it != |PLUGIN_NAME|_handleMap->end(); it++ )
+      DBG( it->first );
 
-    HandleMap::iterator it = handleMap->find( _message->GetDescriptor()->full_name() );
+    // construct subtree here itself rather than in dissect otherwise
+    // all repeated fields and messages are pushed to end of current tree
+    // regardless of their current position
+    HandleMap::iterator it = |PLUGIN_NAME|_handleMap->find( _message->GetDescriptor()->full_name() );
 
-    if( it == handleMap->end() ) 
+    if( it == |PLUGIN_NAME|_handleMap->end() ) 
     {
       DBG_ERR( "couldnt find handle for " << _message->GetDescriptor()->full_name() );
       return;
@@ -231,18 +236,32 @@ void MessageDissector::dissect( MessageDissectorList& messageDissectorList, void
     proto_item* item;
     if( _index == -1 )
     {
-      item = proto_tree_add_none_format( _tree, handles.handle, tvb, 
+      item = proto_tree_add_none_format( tree, handles.handle, _tvb, 
 					 _offset, _len, 
 					 _label->c_str() );
     }
     else
     {
-      item = proto_tree_add_none_format( _tree, handles.handle, tvb, 
+      item = proto_tree_add_none_format( tree, handles.handle, _tvb, 
 					 _offset, _len, "%s[%d]", 
 					 _label->c_str(), _index );
       
     }
     _leaf = proto_item_add_subtree( item, *(handles.tree_handle) );
+
+}
+
+void MessageDissector::dissect( MessageDissectorList& messageDissectorList )
+{
+    DBG( "Dissecting " << _message->GetDescriptor()->name() 
+	 << " of length " << _len
+	 << " prefix len " << _prefix_len );
+
+    if( !_leaf )
+    {
+      DBG_ERR( "Couldnt find leaf node for current message" );
+      return;
+    } 
 
     _offset+= _prefix_len;
 
@@ -284,20 +303,20 @@ void MessageDissector::dissect( MessageDissectorList& messageDissectorList, void
       }
       else // plain simple field. process it immediately
       {
-	dissectField( field, tvb );
+	dissectField( field );
       }
     }
 }
 
-void MessageDissector::dissectField( const FieldDescriptor* field, void * tvb )
+void MessageDissector::dissectField( const FieldDescriptor* field )
 {
     int len = WireFormat::FieldByteSize( field, *_message );
 
     DBG( "Dissecting field " << field->name() << " " << len );
 
-    HandleMap::iterator it = handleMap->find( field->full_name() );
+    HandleMap::iterator it = |PLUGIN_NAME|_handleMap->find( field->full_name() );
 
-    if( it == handleMap->end() ) 
+    if( it == |PLUGIN_NAME|_handleMap->end() ) 
     {
       DBG_ERR( "Couldnt find handle for " << field->full_name() );
       return;
@@ -310,38 +329,38 @@ void MessageDissector::dissectField( const FieldDescriptor* field, void * tvb )
     switch( field->cpp_type() )
     {
     case FieldDescriptor::CPPTYPE_UINT32:
-      proto_tree_add_uint( _leaf, handles.handle, tvb, _offset, len, _reflection->GetUInt32( *_message, field ) );
+      proto_tree_add_uint( _leaf, handles.handle, _tvb, _offset, len, _reflection->GetUInt32( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_INT32:
-      proto_tree_add_int( _leaf, handles.handle, tvb, _offset, len, _reflection->GetInt32( *_message, field ) );
+      proto_tree_add_int( _leaf, handles.handle, _tvb, _offset, len, _reflection->GetInt32( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_FLOAT:
-      proto_tree_add_float( _leaf, handles.handle, tvb, _offset, len, _reflection->GetFloat( *_message, field ) );
+      proto_tree_add_float( _leaf, handles.handle, _tvb, _offset, len, _reflection->GetFloat( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
-      proto_tree_add_uint64( _leaf, handles.handle, tvb, _offset, len, _reflection->GetUInt64( *_message, field ) );
+      proto_tree_add_uint64( _leaf, handles.handle, _tvb, _offset, len, _reflection->GetUInt64( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_INT64:
-      proto_tree_add_int64( _leaf, handles.handle, tvb, _offset, len, _reflection->GetInt64( *_message, field ) );
+      proto_tree_add_int64( _leaf, handles.handle, _tvb, _offset, len, _reflection->GetInt64( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_DOUBLE:
-      proto_tree_add_double( _leaf, handles.handle, tvb, _offset, len, _reflection->GetDouble( *_message, field ) );
+      proto_tree_add_double( _leaf, handles.handle, _tvb, _offset, len, _reflection->GetDouble( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
-      proto_tree_add_boolean( _leaf, handles.handle, tvb, _offset, len, _reflection->GetBool( *_message, field ) );
+      proto_tree_add_boolean( _leaf, handles.handle, _tvb, _offset, len, _reflection->GetBool( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_ENUM:
       enumDesc = _reflection->GetEnum( *_message, field );
-      proto_tree_add_int_format_value( _leaf, handles.handle, tvb, _offset, len, 
+      proto_tree_add_int_format_value( _leaf, handles.handle, _tvb, _offset, len, 
 				       enumDesc->number(), "%d ( %s )", enumDesc->number(),
 				       enumDesc->name().c_str() );
       break;
     case FieldDescriptor::CPPTYPE_STRING:
-      proto_tree_add_string( _leaf, handles.handle, tvb, _offset, len, 
+      proto_tree_add_string( _leaf, handles.handle, _tvb, _offset, len, 
 			     _reflection->GetString( *_message, field ).c_str() );
       break;
     default:
-      proto_tree_add_item( _leaf, handles.handle, tvb, _offset, len, true );
+      proto_tree_add_item( _leaf, handles.handle, _tvb, _offset, len, true );
     };
 
     _offset+=len;
