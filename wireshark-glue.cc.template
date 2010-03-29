@@ -14,7 +14,7 @@ using namespace internal;
 
 extern "C" {
 
-static HandleMap* |PLUGIN_NAME|_handleMap = NULL;
+static HandleMap* handleMap = NULL;
 
 static void * _tvb = NULL;
 
@@ -46,21 +46,21 @@ int wireshark_pb_process_|PLUGIN_NAME|(proto_tree* tree_root, int item_id, tvbuf
 
   int offset = 0; 
 
-  MessageDissectorList messageDissectorList;
+  DissectorList dissectorList;
 
   // we process the message tree breadth wise
-  messageDissectorList.push_back( MessageDissector( tree_root, offset, 0,
+  dissectorList.push_back( |PLUGIN_NAME|_Dissector( tree_root, offset, 0,
 						    &msg, 
 						    &( msg.GetDescriptor()->name() ), -1 ) );
   
-  while ( !messageDissectorList.empty() )
+  while ( !dissectorList.empty() )
   {
-    MessageDissector messageDissector = messageDissectorList.front();
-    messageDissectorList.pop_front();
+    |PLUGIN_NAME|_Dissector dissector = dissectorList.front();
+    dissectorList.pop_front();
 
     // this can add further entries to message dissector list
-    messageDissector.dissect( messageDissectorList );
-  } // while( !messageDissectorList.empty() )
+    dissector.dissect( dissectorList );
+  } // while( !dissectorList.empty() )
 
   return 0;
 }
@@ -73,7 +73,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( int proto,
    wireshark_pb_process_|PLUGIN_NAME|_register_subtree( proto,
 							name.c_str(),
 							&(handles.handle), &(handles.tree_handle) );
-   |PLUGIN_NAME|_handleMap->insert( StringHandlePair( full_name, handles ) );
+   handleMap->insert( StringHandlePair( full_name, handles ) );
 }
 
 int wireshark_pb_process_|PLUGIN_NAME|_get_type( FieldDescriptor::CppType type )
@@ -110,9 +110,9 @@ int wireshark_pb_process_|PLUGIN_NAME|_get_type( FieldDescriptor::CppType type )
 
 void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 {
-  if( |PLUGIN_NAME|_handleMap == NULL )
+  if( handleMap == NULL )
   {
-    |PLUGIN_NAME|_handleMap = new HandleMap();
+    handleMap = new HandleMap();
   }
 
   DescriptorList messageDescriptorList;
@@ -170,11 +170,11 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 						       fieldDescriptor->name().c_str(),
 						       fieldDescriptor->name().c_str(),
 						       &(handles.handle) );
-    |PLUGIN_NAME|_handleMap->insert( StringHandlePair( fieldDescriptor->full_name(), handles ) );
+    handleMap->insert( StringHandlePair( fieldDescriptor->full_name(), handles ) );
   }
 }
 
-MessageDissector::MessageDissector()
+|PLUGIN_NAME|_Dissector::|PLUGIN_NAME|_Dissector()
   : _index( -1 ), 
     _label( NULL ),
     _leaf( NULL ),
@@ -187,7 +187,7 @@ MessageDissector::MessageDissector()
 }
 
   
-MessageDissector::MessageDissector( proto_tree* tree, int offset, int prefix,
+|PLUGIN_NAME|_Dissector::|PLUGIN_NAME|_Dissector( proto_tree* tree, int offset, int prefix,
 				    const Message* mess, 
 				    const std::string* str, 
 				    int idx )
@@ -215,16 +215,12 @@ MessageDissector::MessageDissector( proto_tree* tree, int offset, int prefix,
 
     _len = total_size;
 
-    DBG("**print handleMap" );
-    for( HandleMap::iterator it = |PLUGIN_NAME|_handleMap->begin(); it != |PLUGIN_NAME|_handleMap->end(); it++ )
-      DBG( it->first );
-
     // construct subtree here itself rather than in dissect otherwise
     // all repeated fields and messages are pushed to end of current tree
     // regardless of their current position
-    HandleMap::iterator it = |PLUGIN_NAME|_handleMap->find( _message->GetDescriptor()->full_name() );
+    HandleMap::iterator it = handleMap->find( _message->GetDescriptor()->full_name() );
 
-    if( it == |PLUGIN_NAME|_handleMap->end() ) 
+    if( it == handleMap->end() ) 
     {
       DBG_ERR( "couldnt find handle for " << _message->GetDescriptor()->full_name() );
       return;
@@ -251,7 +247,7 @@ MessageDissector::MessageDissector( proto_tree* tree, int offset, int prefix,
 
 }
 
-void MessageDissector::dissect( MessageDissectorList& messageDissectorList )
+void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
 {
     DBG( "Dissecting " << _message->GetDescriptor()->name() 
 	 << " of length " << _len
@@ -281,24 +277,24 @@ void MessageDissector::dissect( MessageDissectorList& messageDissectorList )
 	{
 	  const Message& subMessage = _reflection->GetRepeatedMessage( *_message, 
 								       field, i );
-	  MessageDissector dissector( _leaf, 
+	  |PLUGIN_NAME|_Dissector dissector( _leaf, 
 				      _offset,
 				      -1,
 				      &subMessage, 
 				      &( field->name() ), i );
-	  messageDissectorList.push_back( dissector );
+	  dissectorList.push_back( dissector );
 	  _offset+= dissector.messageLength();
 	}
       } 
       else if( field->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE ) 
       {
 	const Message& subMessage = _reflection->GetMessage( *_message, field );
-	MessageDissector dissector( _leaf, 
+	|PLUGIN_NAME|_Dissector dissector( _leaf, 
 				    _offset,
 				    -1,
 				    &subMessage, 
 				    &( field->name() ) );
-	messageDissectorList.push_back( dissector );
+	dissectorList.push_back( dissector );
 	_offset+= dissector.messageLength();
       }
       else // plain simple field. process it immediately
@@ -308,15 +304,15 @@ void MessageDissector::dissect( MessageDissectorList& messageDissectorList )
     }
 }
 
-void MessageDissector::dissectField( const FieldDescriptor* field )
+void |PLUGIN_NAME|_Dissector::dissectField( const FieldDescriptor* field )
 {
     int len = WireFormat::FieldByteSize( field, *_message );
 
     DBG( "Dissecting field " << field->name() << " " << len );
 
-    HandleMap::iterator it = |PLUGIN_NAME|_handleMap->find( field->full_name() );
+    HandleMap::iterator it = handleMap->find( field->full_name() );
 
-    if( it == |PLUGIN_NAME|_handleMap->end() ) 
+    if( it == handleMap->end() ) 
     {
       DBG_ERR( "Couldnt find handle for " << field->full_name() );
       return;

@@ -94,7 +94,7 @@ class Reflection;
 }
 }
 
-class MessageDissector;
+class |PLUGIN_NAME|_Dissector;
 struct Handles;
 
 typedef std::pair<std::string, Handles> StringHandlePair;
@@ -103,25 +103,25 @@ typedef std::map<std::string, Handles> HandleMap;
 typedef std::vector<const google::protobuf::Descriptor*> DescriptorList;
 typedef std::vector<const google::protobuf::FieldDescriptor*> FieldDescriptorList;
 
-typedef std::list<MessageDissector> MessageDissectorList;
+typedef std::list<|PLUGIN_NAME|_Dissector> DissectorList;
 
 // this is the main dissector class which hold context during dissection of message
 
-class MessageDissector
+class |PLUGIN_NAME|_Dissector
 {  
 
 public: // methods
 
   // default ctor to satisfy std::list
-  MessageDissector();
+  |PLUGIN_NAME|_Dissector();
 
   // actual ctor that is used
-  MessageDissector( proto_tree* tree, int offset, int prefix_len,
-		    const google::protobuf::Message* mess, 
+  |PLUGIN_NAME|_Dissector( proto_tree* tree, int offset, int prefix_len,
+	     	    const google::protobuf::Message* mess, 
 		    const std::string* str, int idx = -1 );
 
   // main dissect method
-  void dissect( MessageDissectorList& list );
+  void dissect( DissectorList& list );
 
 protected: // methods
 
@@ -160,7 +160,6 @@ private: // data
   // reflection pointer cache
   const google::protobuf::Reflection* _reflection;
 
-  proto_tree* _tree;
 };
 
 typedef struct Handles
