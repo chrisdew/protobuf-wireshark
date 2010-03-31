@@ -1,9 +1,10 @@
 Generating Wireshark/Ethereal plugins for Google Protocol Buffers
 
 Dilip Antony Joseph (dilip.antony.joseph at gmail.com)
+Dear Chap ( dear.chap at gmail.com)
 http://code.google.com/p/protobuf-wireshark/
 
-Version 0.3 (March 23, 2010)
+Version 0.4 (March 31, 2010)
 
 
 We can generate two types of Wireshark dissector plugins:
@@ -73,9 +74,11 @@ d. wireshark_src_dir      :   Absolute path to the wireshark source files
 e. wireshark_install_dir  :   Absolute path to the directory in wireshark is
                               installed, i.e., WINSTALL_DIR[optional]
 f. wireshark_version      :   1.0.2 or whatever other version you are using
-g. port_num               :   Wireshark will automatically try to decode UDP
-                              packets with this port number as AddressBook
-                              messages.  By default, port num is 60000.
+g. port_num               :   Space separated list of port numbers. 
+                              Wireshark will automatically try to decode UDP
+                              packets with given port numbers as AddressBook
+                              messages.  If none are provided, port num is 
+                              set to default value of 60000.
 
 Step 4: Run make_wireshark_plugin.py
 ====================================

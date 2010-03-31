@@ -164,7 +164,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
   {
     const FieldDescriptor* fieldDescriptor = *it;
     Handles handles;
-    DBG( "Register field ( " << fieldDescriptor->name() << " : " << fieldDescriptor->full_name() << ")" );
+    DBG( "Register field ( " << fieldDescriptor->name() << " : " << fieldDescriptor->full_name() << " )" );
     wireshark_pb_process_|PLUGIN_NAME|_register_field( proto, 
 						       wireshark_pb_process_|PLUGIN_NAME|_get_type( fieldDescriptor->cpp_type() ),
 						       fieldDescriptor->name().c_str(),
@@ -249,9 +249,9 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 
 void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
 {
-    DBG( "Dissecting " << _message->GetDescriptor()->name() 
-	 << " of length " << _len
-	 << " prefix len " << _prefix_len );
+    //DBG( "Dissecting " << _message->GetDescriptor()->name() 
+    //	 << " of length " << _len
+    //	 << " prefix len " << _prefix_len );
 
     if( !_leaf )
     {
@@ -308,7 +308,7 @@ void |PLUGIN_NAME|_Dissector::dissectField( const FieldDescriptor* field )
 {
     int len = WireFormat::FieldByteSize( field, *_message );
 
-    DBG( "Dissecting field " << field->name() << " " << len );
+    //DBG( "Dissecting field " << field->name() << " " << len );
 
     HandleMap::iterator it = handleMap->find( field->full_name() );
 

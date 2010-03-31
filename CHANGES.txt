@@ -1,3 +1,9 @@
+Version 0.4 (March 31, 2010)
+-------------------------------
+
+1. Fields within protobuf message are mapped to exact position within byte stream
+2. Multiple UDP port numbers can be provided in config file
+
 Version 0.3 (March 23, 2010)
 -------------------------------
 
