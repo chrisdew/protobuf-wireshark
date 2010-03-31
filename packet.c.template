@@ -22,7 +22,11 @@ G_MODULE_EXPORT const gchar version[] = "0.0";
 
 
 static int proto_|PLUGIN_NAME| = -1;
-static int global_|PLUGIN_NAME|_port = |PORT_NUM|;
+static int global_|PLUGIN_NAME|_udp_ports[] = 
+{ 
+|PORT_NUM| 
+};
+
 static dissector_handle_t |PLUGIN_NAME|_handle;
 
 // Protocol field variables - START
@@ -69,12 +73,15 @@ void proto_register_|PLUGIN_NAME|(void) {
 
 void proto_reg_handoff_|PLUGIN_NAME| (void) {
 	static int Initialized=FALSE;
+	unsigned int i = 0;
 
 	if (!Initialized) {
 		|PLUGIN_NAME|_handle = create_dissector_handle(dissect_|PLUGIN_NAME|, proto_|PLUGIN_NAME|);
-    if(global_|PLUGIN_NAME|_port > 0) {
-		  dissector_add("udp.port", global_|PLUGIN_NAME|_port, |PLUGIN_NAME|_handle);
-    }
+
+	  
+	        for( ; i < ( sizeof( global_|PLUGIN_NAME|_udp_ports ) / sizeof( global_|PLUGIN_NAME|_udp_ports[0] ) ); i++) {
+		        dissector_add("udp.port", global_|PLUGIN_NAME|_udp_ports[i], |PLUGIN_NAME|_handle);
+		}
 	}
 }
 /* Register plugin - END */

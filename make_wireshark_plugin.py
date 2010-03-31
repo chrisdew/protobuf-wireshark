@@ -69,8 +69,13 @@ if len(sys.argv) != 2:
 plugin_conf = read_config(sys.argv[1])
 
 plugin_name = plugin_conf['name']
-if plugin_conf.has_key('port_num'): port_num = plugin_conf['port_num']
-else: port_num = '60000'
+if plugin_conf.has_key('port_num'): 
+  port_nums = plugin_conf['port_num']
+  port_nums_list = port_nums.split()
+  port_nums_comma_list = [ ',\n  ' + item for item in port_nums_list[1:] ]
+  port_num = '  ' + port_nums_list[0] + ''.join( port_nums_comma_list ) 
+else: 
+  port_num = '  ' + '60000'
 
 print 'Generating Wireshark plugin for ', plugin_name
 
