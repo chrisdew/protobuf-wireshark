@@ -118,7 +118,7 @@ public: // methods
   // actual ctor that is used
   |PLUGIN_NAME|_Dissector( proto_tree* tree, int offset, int prefix_len,
 	     	    const google::protobuf::Message* mess, 
-		    const std::string* str, int idx = -1 );
+		    const std::string* name, const std::string* full_name, int idx = -1 );
 
   // main dissect method
   void dissect( DissectorList& list );
@@ -129,7 +129,7 @@ protected: // methods
   void dissectField( const google::protobuf::FieldDescriptor* field );
 
   // dissect a repeated field
-  void dissectRepeatedField( const google::protobuf::FieldDescriptor* field, int index );
+  void dissectRepeatedField( const google::protobuf::FieldDescriptor* field, int index, bool packed );
 
   // returns total length of message as seen in byte stream
   // this will be data size + encoding length of tag + data_size length

@@ -5,6 +5,8 @@
 
 #include <google/protobuf/text_format.h>
 #include <google/protobuf/wire_format.h>
+#include <google/protobuf/wire_format_lite.h>
+#include <google/protobuf/wire_format_lite_inl.h>
 #include <google/protobuf/io/coded_stream.h>
 
 using namespace std;
@@ -53,7 +55,8 @@ int wireshark_pb_process_|PLUGIN_NAME|(proto_tree* tree_root, int item_id, tvbuf
   // we process the message tree breadth wise
   dissectorList.push_back( |PLUGIN_NAME|_Dissector( tree_root, offset, 0,
 						    &msg, 
-						    &( msg.GetDescriptor()->name() ), -1 ) );
+						    &( msg.GetDescriptor()->name() ),
+						    &( msg.GetDescriptor()->full_name() ), -1 ) );
   
   while ( !dissectorList.empty() )
   {
@@ -143,10 +146,12 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
       if( fieldDescriptor->is_repeated() )
       {
 	DBG( "Register repeat field ( " << fieldDescriptor->name() << " )" );
-	
-	wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( proto,
-							      fieldDescriptor->name(),
-							      fieldDescriptor->full_name() );
+	if( fieldDescriptor->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE )
+	{
+	  wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( proto,
+								fieldDescriptor->name(),
+								fieldDescriptor->full_name() );
+	}
       }
  
       if( fieldDescriptor->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE )
@@ -191,10 +196,11 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
   
 |PLUGIN_NAME|_Dissector::|PLUGIN_NAME|_Dissector( proto_tree* tree, int offset, int prefix,
 						  const Message* mess, 
-						  const std::string* str, 
+						  const std::string* name,
+						  const std::string* full_name,
 						  int idx )
   : _index( idx ), 
-    _label( str ),
+    _label( name ),
     _leaf( NULL ),
     _len( -1 ),
     _message( mess ),
@@ -220,11 +226,11 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
     // construct subtree here itself rather than in dissect method otherwise
     // all repeated fields and messages are pushed to end of current tree
     // regardless of their current position
-    HandleMap::iterator it = handleMap->find( _message->GetDescriptor()->full_name() );
+    HandleMap::iterator it = handleMap->find( *full_name );
 
     if( it == handleMap->end() ) 
     {
-      DBG_ERR( "couldnt find handle for " << _message->GetDescriptor()->full_name() );
+      DBG_ERR( "couldnt find handle for " << *full_name );
       return;
     }
 
@@ -246,7 +252,6 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
       
     }
     _leaf = proto_item_add_subtree( item, *(handles.tree_handle) );
-
 }
 
 void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
@@ -287,13 +292,24 @@ void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
 					       _offset,
 					       -1,
 					       &subMessage, 
-					       &( field->name() ), i );
+					       &( field->name() ),
+					       &( field->full_name() ), i );
 	    dissectorList.push_back( dissector );
 	    _offset+= dissector.messageLength();
 	  }
 	  else
 	  {
-	    dissectRepeatedField( field, i );
+	    bool packed = field->options().packed();
+	    if( packed )
+	    {
+	      int data_size = WireFormat::FieldDataOnlyByteSize( field, *_message );
+	      if (data_size > 0) 
+	      {
+		_offset += WireFormat::TagSize( field->number(), FieldDescriptor::TYPE_STRING );
+		_offset += io::CodedOutputStream::VarintSize32( data_size );
+	      }
+	    }
+	    dissectRepeatedField( field, i, packed );
 	  }
 	}
       } 
@@ -304,7 +320,8 @@ void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
 					   _offset,
 					   -1,
 					   &subMessage, 
-					   &( field->name() ) );
+					   &( field->name() ),
+					   &( field->full_name() ) );
 	dissectorList.push_back( dissector );
 	_offset+= dissector.messageLength();
       }
@@ -381,9 +398,15 @@ void |PLUGIN_NAME|_Dissector::dissectField( const FieldDescriptor* field )
 
 }
 
-void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field, int index )
+void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field, int index, bool packed )
 {
-    int len = WireFormat::FieldByteSize( field, *_message );
+    int len = 0;
+    string scratch;
+
+    if( !packed )
+    {
+      len+= WireFormat::TagSize( field->number(), field->type() );
+    }
 
     //DBG( "Dissecting field " << field->name() << " " << len );
 
@@ -402,40 +425,85 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
     switch( field->cpp_type() )
     {
     case FieldDescriptor::CPPTYPE_UINT32:
+      if( field->type() == FieldDescriptor::TYPE_FIXED32 )
+      {
+	len+= WireFormatLite::kFixed32Size;
+      }
+      else
+      {
+	len+= WireFormatLite::UInt32Size( _reflection->GetRepeatedUInt32( *_message, field, index )  );      
+      }
       proto_tree_add_uint( _leaf, handles.handle, _tvb, _offset, len,  
 			   _reflection->GetRepeatedUInt32( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_INT32:
+      if( field->type() == FieldDescriptor::TYPE_SFIXED32 )
+      {
+	len+= WireFormatLite::kSFixed32Size;
+      }
+      else if( field->type() == FieldDescriptor::TYPE_SINT32 )
+      {
+	len+= WireFormatLite::SInt32Size( _reflection->GetRepeatedInt32( *_message, field, index )  );	
+      }
+      else
+      {
+	len+= WireFormatLite::Int32Size( _reflection->GetRepeatedInt32( *_message, field, index )  );	
+      }
       proto_tree_add_int( _leaf, handles.handle, _tvb, _offset, len,  
 			  _reflection->GetRepeatedInt32( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_FLOAT:
+      len+= WireFormatLite::kFloatSize;
       proto_tree_add_float( _leaf, handles.handle, _tvb, _offset, len,  
 			    _reflection->GetRepeatedFloat( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
+      if( field->type() == FieldDescriptor::TYPE_FIXED64 )
+      {
+	len+= WireFormatLite::kFixed64Size;
+      }
+      else
+      {
+	len+= WireFormatLite::UInt64Size( _reflection->GetRepeatedUInt64( *_message, field, index )  );	
+      }
       proto_tree_add_uint64( _leaf, handles.handle, _tvb, _offset, len,  
 			     _reflection->GetRepeatedUInt64( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_INT64:
+      if( field->type() == FieldDescriptor::TYPE_SFIXED64 )
+      {
+	len+= WireFormatLite::kSFixed64Size;
+      }
+      else if( field->type() == FieldDescriptor::TYPE_SINT64 )
+      {
+	len+= WireFormatLite::SInt64Size( _reflection->GetRepeatedInt64( *_message, field, index )  );	
+      }
+      else
+      {
+	len+= WireFormatLite::Int64Size( _reflection->GetRepeatedInt64( *_message, field, index )  );	
+      }
       proto_tree_add_int64( _leaf, handles.handle, _tvb, _offset, len,  
 			    _reflection->GetRepeatedInt64( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_DOUBLE:
+      len+= WireFormatLite::kDoubleSize;
       proto_tree_add_double( _leaf, handles.handle, _tvb, _offset, len,  
 			     _reflection->GetRepeatedDouble( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
+      len+= WireFormatLite::kBoolSize;
       proto_tree_add_boolean( _leaf, handles.handle, _tvb, _offset, len,
 			      _reflection->GetRepeatedBool( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_ENUM:
       enumDesc = _reflection->GetRepeatedEnum( *_message, field, index );
+      len+= WireFormatLite::EnumSize( enumDesc->number() );
       proto_tree_add_int_format_value( _leaf, handles.handle, _tvb, _offset, len, 
 				       enumDesc->number(), "%d ( %s )", enumDesc->number(),
 				       enumDesc->name().c_str() );
       break;
     case FieldDescriptor::CPPTYPE_STRING:
+      len+= WireFormatLite::StringSize( _reflection->GetRepeatedStringReference( *_message, field, index, &scratch ) );
       proto_tree_add_string( _leaf, handles.handle, _tvb, _offset, len,  
 			     _reflection->GetRepeatedString( *_message, field, index ).c_str() );
       break;
