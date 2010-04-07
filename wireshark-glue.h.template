@@ -125,7 +125,11 @@ public: // methods
 
 protected: // methods
 
+  // dissect a basic field
   void dissectField( const google::protobuf::FieldDescriptor* field );
+
+  // dissect a repeated field
+  void dissectRepeatedField( const google::protobuf::FieldDescriptor* field, int index );
 
   // returns total length of message as seen in byte stream
   // this will be data size + encoding length of tag + data_size length
