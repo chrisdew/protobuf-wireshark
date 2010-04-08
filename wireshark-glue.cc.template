@@ -140,19 +140,12 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
     {
       const FieldDescriptor* fieldDescriptor = messageDescriptor->field( i );
       
-      if( fieldDescriptor->is_repeated() )
-      {
-	DBG( "Register repeat field ( " << fieldDescriptor->name() << " )" );
-	if( fieldDescriptor->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE )
-	{
-	  wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( proto,
-								fieldDescriptor->name(),
-								fieldDescriptor->full_name() );
-	}
-      }
- 
       if( fieldDescriptor->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE )
       {
+	DBG( "Register message field ( " << fieldDescriptor->name() << " )" );
+        wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( proto,
+							      fieldDescriptor->name(),
+							      fieldDescriptor->full_name() );
 	messageDescriptorList.push_back( fieldDescriptor->message_type() );
       }
       else
