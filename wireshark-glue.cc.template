@@ -53,10 +53,7 @@ int wireshark_pb_process_|PLUGIN_NAME|(proto_tree* tree_root, int item_id, tvbuf
   DissectorList dissectorList;
 
   // we process the message tree breadth wise
-  dissectorList.push_back( |PLUGIN_NAME|_Dissector( tree_root, offset, 0,
-						    &msg, 
-						    &( msg.GetDescriptor()->name() ),
-						    &( msg.GetDescriptor()->full_name() ), -1 ) );
+  dissectorList.push_back( |PLUGIN_NAME|_Dissector( tree_root, offset, &msg, NULL ) );
   
   while ( !dissectorList.empty() )
   {
@@ -182,9 +179,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 }
 
 |PLUGIN_NAME|_Dissector::|PLUGIN_NAME|_Dissector()
-  : _index( -1 ), 
-    _label( NULL ),
-    _leaf( NULL ),
+  : _leaf( NULL ),
     _len( -1 ),
     _message( NULL ),
     _offset( 0 ),
@@ -194,30 +189,30 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 }
 
   
-|PLUGIN_NAME|_Dissector::|PLUGIN_NAME|_Dissector( proto_tree* tree, int offset, int prefix,
-						  const Message* mess, 
-						  const std::string* name,
-						  const std::string* full_name,
-						  int idx )
-  : _index( idx ), 
-    _label( name ),
-    _leaf( NULL ),
+|PLUGIN_NAME|_Dissector::|PLUGIN_NAME|_Dissector( proto_tree* tree, int offset,
+						  const Message* message, 
+						  const FieldDescriptor* field,
+						  int index )
+  : _leaf( NULL ),
     _len( -1 ),
-    _message( mess ),
+    _message( message ),
     _offset( offset ),
-    _prefix_len( prefix ),
+    _prefix_len( 0 ),
     _reflection( _message->GetReflection() )
 {
-    int data_size = _message->ByteSize();
-    
-    int total_size = data_size;
+    bool is_root = ( field == NULL );
+    const std::string& label = ( is_root ) ? _message->GetDescriptor()->name() : field->name();
+    const std::string& fullname = ( is_root ) ? _message->GetDescriptor()->full_name() : field->full_name();
 
-    // if prefix_len is unknown we need to compute it
-    if( _prefix_len == -1 )
+    int data_size = _message->ByteSize();  
+    int total_size = data_size;
+      
+    // if not root field then prefix_len needs to be computed
+    if( !is_root )
     {
       _prefix_len = WireFormat::TagSize( _message->GetDescriptor()->index(), 
-					FieldDescriptor::TYPE_MESSAGE );
-      _prefix_len+= io::CodedOutputStream::VarintSize32(data_size);
+					 FieldDescriptor::TYPE_MESSAGE );
+      _prefix_len+= io::CodedOutputStream::VarintSize32( data_size );
       total_size+= _prefix_len;
     }
 
@@ -226,11 +221,11 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
     // construct subtree here itself rather than in dissect method otherwise
     // all repeated fields and messages are pushed to end of current tree
     // regardless of their current position
-    HandleMap::iterator it = handleMap->find( *full_name );
+    HandleMap::iterator it = handleMap->find( fullname );
 
     if( it == handleMap->end() ) 
     {
-      DBG_ERR( "couldnt find handle for " << *full_name );
+      DBG_ERR( "couldnt find handle for " << fullname );
       return;
     }
 
@@ -238,17 +233,17 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
 
     // add a subtree for current message
     proto_item* item;
-    if( _index == -1 )
+    if( index == -1 )
     {
       item = proto_tree_add_none_format( tree, handles.handle, _tvb, 
 					 _offset, _len, 
-					 _label->c_str() );
+					 label.c_str() );
     }
     else
     {
       item = proto_tree_add_none_format( tree, handles.handle, _tvb, 
 					 _offset, _len, ARRAY_FORMAT, 
-					 _label->c_str(), _index );
+					 label.c_str(), index );
       
     }
     _leaf = proto_item_add_subtree( item, *(handles.tree_handle) );
@@ -281,6 +276,16 @@ void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
 
       if( field->is_repeated() )
       {
+	if( field->options().packed() )
+	{
+	  int data_size = WireFormat::FieldDataOnlyByteSize( field, *_message );
+	  if (data_size > 0) 
+	  {
+	    _offset += WireFormat::TagSize( field->number(), FieldDescriptor::TYPE_STRING );
+	    _offset += io::CodedOutputStream::VarintSize32( data_size );
+	  }
+	}
+
 	int size = _reflection->FieldSize( *_message, field );
 	for( int i = 0; i < size; i++ )
 	{
@@ -288,40 +293,22 @@ void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
 	  {
 	    const Message& subMessage = _reflection->GetRepeatedMessage( *_message, 
 									 field, i );
-	    |PLUGIN_NAME|_Dissector dissector( _leaf, 
-					       _offset,
-					       -1,
-					       &subMessage, 
-					       &( field->name() ),
-					       &( field->full_name() ), i );
+	    |PLUGIN_NAME|_Dissector dissector( _leaf, _offset,
+					       &subMessage, field, i );
 	    dissectorList.push_back( dissector );
 	    _offset+= dissector.messageLength();
 	  }
 	  else
 	  {
-	    bool packed = field->options().packed();
-	    if( packed )
-	    {
-	      int data_size = WireFormat::FieldDataOnlyByteSize( field, *_message );
-	      if (data_size > 0) 
-	      {
-		_offset += WireFormat::TagSize( field->number(), FieldDescriptor::TYPE_STRING );
-		_offset += io::CodedOutputStream::VarintSize32( data_size );
-	      }
-	    }
-	    dissectRepeatedField( field, i, packed );
+	    dissectRepeatedField( field, i );
 	  }
 	}
       } 
       else if( is_message )
       {
 	const Message& subMessage = _reflection->GetMessage( *_message, field );
-	|PLUGIN_NAME|_Dissector dissector( _leaf, 
-					   _offset,
-					   -1,
-					   &subMessage, 
-					   &( field->name() ),
-					   &( field->full_name() ) );
+	|PLUGIN_NAME|_Dissector dissector( _leaf, _offset,
+					   &subMessage, field ); 
 	dissectorList.push_back( dissector );
 	_offset+= dissector.messageLength();
       }
@@ -398,12 +385,12 @@ void |PLUGIN_NAME|_Dissector::dissectField( const FieldDescriptor* field )
 
 }
 
-void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field, int index, bool packed )
+void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field, int index )
 {
     int len = 0;
     string scratch;
 
-    if( !packed )
+    if( !field->options().packed() )
     {
       len+= WireFormat::TagSize( field->number(), field->type() );
     }
