@@ -116,16 +116,20 @@ public: // methods
   |PLUGIN_NAME|_Dissector();
 
   // actual ctor that is used
-  |PLUGIN_NAME|_Dissector( proto_tree* tree, int offset, int prefix_len,
-	     	    const google::protobuf::Message* mess, 
-		    const std::string* str, int idx = -1 );
+  |PLUGIN_NAME|_Dissector( proto_tree* tree, int offset, 
+			   const google::protobuf::Message* mess, 
+			   const google::protobuf::FieldDescriptor* field, int index = -1 );
 
   // main dissect method
   void dissect( DissectorList& list );
 
 protected: // methods
 
+  // dissect a basic field
   void dissectField( const google::protobuf::FieldDescriptor* field );
+
+  // dissect a repeated field
+  void dissectRepeatedField( const google::protobuf::FieldDescriptor* field, int index );
 
   // returns total length of message as seen in byte stream
   // this will be data size + encoding length of tag + data_size length
@@ -135,12 +139,6 @@ protected: // methods
   }
 
 private: // data
-
-  // index for repeated fields
-  int _index;  
-
-  // the label to use
-  const std::string* _label;
 
   // the leaf tree for this message and subfields
   proto_tree* _leaf;

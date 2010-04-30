@@ -1,3 +1,9 @@
+Version 0.5 (April 30, 2010)
+-------------------------------
+
+1. Fix for dissector crash when dissecting repeated primitive fields. 
+2. General code cleanup
+
 Version 0.4 (March 31, 2010)
 -------------------------------
 
