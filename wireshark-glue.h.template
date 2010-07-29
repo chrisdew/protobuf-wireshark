@@ -180,6 +180,9 @@ public: // methods
 
   // dissect the given message buffer
   int dissect(proto_tree* tree_root, int item_id, tvbuff_t* tvb, void* buf, int buf_size);
+
+  // whether config/descriptor are valid
+  bool isValid();
  
   // whether this message is expected on this destination port
   bool matchesDestPort( int port );

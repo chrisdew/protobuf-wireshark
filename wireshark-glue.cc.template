@@ -10,6 +10,7 @@
 #include <google/protobuf/wire_format_lite_inl.h>
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/compiler/importer.h>
+#include <google/protobuf/dynamic_message.h>
 
 using namespace std;
 using namespace google;
@@ -19,7 +20,7 @@ using namespace internal;
 extern "C" {
 
 static HandleMap* handleMap = NULL;
-static MessageConfigList* messageConfigList = NULL;
+static MessageConfigList messageConfigList;
 static google::protobuf::compiler::Importer* importer = NULL;
 
 static void * _tvb = NULL;
@@ -34,7 +35,7 @@ static const char ARRAY_FORMAT[] = "%s[%d]";
   */
 int wireshark_pb_process_|PLUGIN_NAME|(proto_tree* tree_root, int srcport, int dstport, int item_id, tvbuff_t* tvb, void* buf, int buf_size) 
 {
-  for( MessageConfigList::iterator it = messageConfigList->begin(); it != messageConfigList->end(); it++ )
+  for( MessageConfigList::iterator it = messageConfigList.begin(); it != messageConfigList.end(); it++ )
   {
       if( (*it)->matchesSrcPort( srcport ) ||
 	  (*it)->matchesDestPort( dstport ) )
@@ -91,13 +92,12 @@ int wireshark_pb_process_|PLUGIN_NAME|_get_type( FieldDescriptor::CppType type )
 
 void wireshark_pb_process_|PLUGIN_NAME|_register_ports()
 {
-    if( messageConfigList == NULL ) return;
-
-    for( MessageConfigList::iterator it = messageConfigList->begin(); it != messageConfigList->end(); it++ )
+    for( MessageConfigList::iterator it = messageConfigList.begin(); it != messageConfigList.end(); it++ )
     {
         (*it)->register_ports();
     }
 }
+
 void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto, const char* dirname )
 {
     if( dirname == NULL )
@@ -112,7 +112,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto, const char* d
         return;
     }
     dirent* dp;
-    std::string configFileExtension( ".config" );
+    std::string configFileExtension( ".conf" );
     std::string protoFileExtension( ".proto" );
 
     while( ( dp = readdir( dir ) ) != NULL )
@@ -123,7 +123,14 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto, const char* d
 
         if( ( i != std::string::npos ) && ( i == filename.length() - configFileExtension.length() ) )
         {
-	    messageConfigList->push_back( new |PLUGIN_NAME|_MessageConfig( filename, dirname ) );
+	    |PLUGIN_NAME|_MessageConfig* messageConfig = new |PLUGIN_NAME|_MessageConfig( filename, dirname );
+
+	    if( messageConfig->isValid() )
+	    {
+	        messageConfigList.push_back( messageConfig );
+
+	        messageConfig->register_proto( proto );
+	    }
         }
 
         //const FileDescriptor* fileDesc = importer->Import( filename );
@@ -134,7 +141,7 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto, const char* d
         //    std::string configFileName = desc->name() + ".config"; 
         //
         //    // check if desc->name() | .config exists TBD
-        //    messageConfigList->push_back( new |PLUGIN_NAME|_MessageConfig( configFileName, desc ) );
+        //    messageConfigList.push_back( new |PLUGIN_NAME|_MessageConfig( configFileName, desc ) );
         //}
     }
     closedir( dir );
@@ -464,6 +471,18 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
 
 }
 
+class ErrorCollector 
+      : public protobuf::compiler::MultiFileErrorCollector 
+{ 
+    // Implementation of MultiFileErrorCollector interface. 
+
+    void AddError(const string & filename, int line, int column, const string & message)
+    {
+        DBG( "Error in file " << filename << " at line/col:" << line << "/" << column 
+	    << message );
+    }
+}; 
+
 |PLUGIN_NAME|_MessageConfig::|PLUGIN_NAME|_MessageConfig()
    : _desc( NULL )
 {
@@ -477,7 +496,8 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
 
 int |PLUGIN_NAME|_MessageConfig::dissect(proto_tree* tree_root, int item_id, tvbuff_t* tvb, void* buf, int buf_size)
 {
-    Message* msg = MessageFactory::generated_factory()->GetPrototype( _desc )->New();
+    DynamicMessageFactory factory;
+    Message* msg = factory.GetPrototype( _desc )->New();
     if (!msg->ParseFromArray((char *) buf, buf_size)) {
        DBG_ERR( "Failed to parse message." );
        /*
@@ -534,6 +554,11 @@ void Tokenize(const std::string& str,
     }
 }
 
+bool |PLUGIN_NAME|_MessageConfig::isValid()
+{
+    return ( _desc != NULL );
+}
+
 bool |PLUGIN_NAME|_MessageConfig::matchesDestPort( int port )
 {
     return matchesPort( _dstPorts, port );
@@ -566,11 +591,12 @@ void |PLUGIN_NAME|_MessageConfig::parseConfigFile( const std::string& filename, 
 	return;
     }
     std::string line;
+    std::string message_name;
     
     while( !infile.eof() )
     {
 	std::getline( infile, line );
-	
+
 	// skip lines beginning with #
 	if( line[0] == '#' ) continue;
 	
@@ -578,29 +604,41 @@ void |PLUGIN_NAME|_MessageConfig::parseConfigFile( const std::string& filename, 
 	
 	Tokenize( line, tokens, " =" );
 
-        DBG( "Found " << tokens.size() << " tokens" );
+        //DBG( "Found " << tokens.size() << " tokens" );
 
-        if( tokens.size() < 2 ) 
+	// skip lines which have less that 2 tokens
+        if( tokens.size() < 2 ) continue;
+	
+        if( tokens[0] == "name" )
         {
-            continue;
-        }
+	    message_name = tokens[1];
+	    continue;
+	}
 
         if( tokens[0] == "proto_file" )
         {
             if( importer == NULL )
             {
-                importer = new google::protobuf::compiler::Importer( NULL, NULL );
+	        protobuf::compiler::DiskSourceTree *sourceTree = new protobuf::compiler::DiskSourceTree();
+		static ErrorCollector* errorCollector = new ErrorCollector();
+		sourceTree->MapPath( "", dirname );
+                importer = new protobuf::compiler::Importer( sourceTree, errorCollector );
             }
 
 	    DBG( "filename to import " << tokens[1] );
-            const FileDescriptor* fileDesc = importer->Import( dirname + "/" + tokens[1] );
+            const FileDescriptor* fileDesc = importer->Import( tokens[1] );
  
             if( fileDesc == NULL )
             {
                 DBG_ERR("Unable to parse " << tokens[1] );
                 continue;
             } 
-            _desc = fileDesc->FindMessageTypeByName( filename.substr( 0, filename.rfind( ".config" ) ) );
+	    DBG( "searching for message " << message_name );
+	    //for( int i = 0; i < fileDesc->message_type_count(); i++ )
+	    //{
+	    //    DBG(" message " << fileDesc->message_type( i )->name() );
+	    //}
+            _desc = fileDesc->FindMessageTypeByName( message_name );
             continue;
         }
 

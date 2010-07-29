@@ -6,6 +6,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/emem.h>
+#include <errno.h>
 #include <string.h>
 
 /* forward reference */
@@ -63,8 +64,22 @@ void proto_register_|PLUGIN_NAME|(void) {
 		}
 	|PLUGIN_NAME|_module= prefs_register_protocol(proto_|PLUGIN_NAME|, proto_reg_handoff_|PLUGIN_NAME|);
 
-        char *dirname = get_datafile_path( "protobuf", NULL, NULL );
-    
+        char* dirname = get_persconffile_path("protobuf", FALSE, FALSE);
+
+        if( test_for_directory( dirname ) != EISDIR ) 
+	{
+            /* Although dir isn't a directory it may still use memory */
+            g_free( dirname );
+
+            dirname = get_datafile_path("protobuf");
+
+            if( test_for_directory( dirname ) != EISDIR ) 
+            {
+                g_free( dirname );
+                dirname = NULL;
+            }
+        }
+
         wireshark_pb_process_|PLUGIN_NAME|_register_proto( proto_|PLUGIN_NAME|, dirname );
 }
 
