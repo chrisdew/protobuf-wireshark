@@ -10,7 +10,7 @@ plugin_LTLIBRARIES = |PLUGIN_NAME|.la
 # Libs must be cleared, or else libtool won't create a shared module.
 # If your module needs to be linked against any particular libraries,
 # add them here.
-LIBS = |GLUE_O_FILE| |PROTO_O_FILE| -lprotobuf
+LIBS = |GLUE_O_FILE| -lprotobuf
 
 CLEANFILES = \
 	|PLUGIN_NAME| \
