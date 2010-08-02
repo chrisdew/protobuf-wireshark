@@ -188,5 +188,5 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_field( int proto, int type,
 
 void wireshark_pb_process_protobuf_dissector_add( const char* name, int port )
 {
-   dissector_add( name, port, protobuf_handle );
+   dissector_add( name, port, |PLUGIN_NAME|_handle );
 }
