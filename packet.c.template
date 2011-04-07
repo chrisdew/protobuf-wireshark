@@ -166,7 +166,10 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_field( int proto, int type,
                                                 const char* name, const char * fullName,
 						int *handle )
 {
-   int base = ((type == FT_UINT32) || (type == FT_UINT64) ) ? BASE_HEX : ( type == FT_INT32) ? BASE_DEC : BASE_NONE;
+   int base = ( ( type == FT_UINT32 ) || ( type == FT_UINT64 ) ) ? BASE_HEX : 
+              ( ( type == FT_INT32 ) || ( type == FT_INT64 ) ) ? BASE_DEC : 
+	      BASE_NONE;
+
    hf_register_info message_info =
         { handle,
                 { (char*)fullName,
