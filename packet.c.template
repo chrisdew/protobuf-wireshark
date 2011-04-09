@@ -157,6 +157,10 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_subtree( int proto, const char*
 
   tree_handle = malloc( sizeof(int) );
 
+  // need to initialize otherwise wireshark
+  // will throw an error
+  *tree_handle = -1;
+
   proto_register_subtree_array( &tree_handle, 1 );
 
   *p_tree_handle = tree_handle;
