@@ -51,10 +51,10 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( int proto,
 							   const std::string& name,
 							   const std::string& full_name )
 {
-   Handles handles;
+   Handles *handles = new Handles();
    wireshark_pb_process_|PLUGIN_NAME|_register_subtree( proto,
 							name.c_str(),
-							&(handles.handle), &(handles.tree_handle) );
+							&(handles->handle), &(handles->tree_handle) );
    handleMap->insert( StringHandlePair( full_name, handles ) );
 }
 
@@ -198,24 +198,24 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto, const char* d
       return;
     }
 
-    Handles handles = it->second;
+    Handles *handles = it->second;
 
     // add a subtree for current message
     proto_item* item;
     if( index == -1 )
     {
-      item = proto_tree_add_none_format( tree, handles.handle, _tvb, 
+      item = proto_tree_add_none_format( tree, handles->handle, _tvb, 
 					 _offset, _len, 
 					 label.c_str() );
     }
     else
     {
-      item = proto_tree_add_none_format( tree, handles.handle, _tvb, 
+      item = proto_tree_add_none_format( tree, handles->handle, _tvb, 
 					 _offset, _len, ARRAY_FORMAT, 
 					 label.c_str(), index );
       
     }
-    _leaf = proto_item_add_subtree( item, *(handles.tree_handle) );
+    _leaf = proto_item_add_subtree( item, *(handles->tree_handle) );
 }
 
 void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
@@ -302,52 +302,52 @@ void |PLUGIN_NAME|_Dissector::dissectField( const FieldDescriptor* field )
       return;
     }
 
-    Handles handles = it->second;
+    Handles *handles = it->second;
 
     const EnumValueDescriptor* enumDesc = NULL;
 
     switch( field->cpp_type() )
     {
     case FieldDescriptor::CPPTYPE_UINT32:
-      proto_tree_add_uint( _leaf, handles.handle, _tvb, _offset, len,
+      proto_tree_add_uint( _leaf, handles->handle, _tvb, _offset, len,
 			   _reflection->GetUInt32( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_INT32:
-      proto_tree_add_int( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_int( _leaf, handles->handle, _tvb, _offset, len, 
 			  _reflection->GetInt32( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_FLOAT:
-      proto_tree_add_float( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_float( _leaf, handles->handle, _tvb, _offset, len, 
 			    _reflection->GetFloat( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
-      proto_tree_add_uint64( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_uint64( _leaf, handles->handle, _tvb, _offset, len, 
 			     _reflection->GetUInt64( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_INT64:
-      proto_tree_add_int64( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_int64( _leaf, handles->handle, _tvb, _offset, len, 
 			    _reflection->GetInt64( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_DOUBLE:
-      proto_tree_add_double( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_double( _leaf, handles->handle, _tvb, _offset, len, 
 			     _reflection->GetDouble( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
-      proto_tree_add_boolean( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_boolean( _leaf, handles->handle, _tvb, _offset, len, 
 			      _reflection->GetBool( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_ENUM:
       enumDesc = _reflection->GetEnum( *_message, field );
-      proto_tree_add_int_format_value( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_int_format_value( _leaf, handles->handle, _tvb, _offset, len, 
 				       enumDesc->number(), "%d ( %s )", enumDesc->number(),
 				       enumDesc->name().c_str() );
       break;
     case FieldDescriptor::CPPTYPE_STRING:
-      proto_tree_add_string( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_string( _leaf, handles->handle, _tvb, _offset, len, 
 			     _reflection->GetString( *_message, field ).c_str() );
       break;
     default:
-      proto_tree_add_item( _leaf, handles.handle, _tvb, _offset, len, true );
+      proto_tree_add_item( _leaf, handles->handle, _tvb, _offset, len, true );
     };
 
     _offset+=len;
@@ -374,7 +374,7 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       return;
     }
 
-    Handles handles = it->second;
+    Handles *handles = it->second;
 
     const EnumValueDescriptor* enumDesc = NULL;
 
@@ -389,7 +389,7 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       {
 	len+= WireFormatLite::UInt32Size( _reflection->GetRepeatedUInt32( *_message, field, index )  );      
       }
-      proto_tree_add_uint( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_uint( _leaf, handles->handle, _tvb, _offset, len,  
 			   _reflection->GetRepeatedUInt32( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_INT32:
@@ -405,12 +405,12 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       {
 	len+= WireFormatLite::Int32Size( _reflection->GetRepeatedInt32( *_message, field, index )  );	
       }
-      proto_tree_add_int( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_int( _leaf, handles->handle, _tvb, _offset, len,  
 			  _reflection->GetRepeatedInt32( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_FLOAT:
       len+= WireFormatLite::kFloatSize;
-      proto_tree_add_float( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_float( _leaf, handles->handle, _tvb, _offset, len,  
 			    _reflection->GetRepeatedFloat( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
@@ -422,7 +422,7 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       {
 	len+= WireFormatLite::UInt64Size( _reflection->GetRepeatedUInt64( *_message, field, index )  );	
       }
-      proto_tree_add_uint64( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_uint64( _leaf, handles->handle, _tvb, _offset, len,  
 			     _reflection->GetRepeatedUInt64( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_INT64:
@@ -438,33 +438,33 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       {
 	len+= WireFormatLite::Int64Size( _reflection->GetRepeatedInt64( *_message, field, index )  );	
       }
-      proto_tree_add_int64( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_int64( _leaf, handles->handle, _tvb, _offset, len,  
 			    _reflection->GetRepeatedInt64( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_DOUBLE:
       len+= WireFormatLite::kDoubleSize;
-      proto_tree_add_double( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_double( _leaf, handles->handle, _tvb, _offset, len,  
 			     _reflection->GetRepeatedDouble( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
       len+= WireFormatLite::kBoolSize;
-      proto_tree_add_boolean( _leaf, handles.handle, _tvb, _offset, len,
+      proto_tree_add_boolean( _leaf, handles->handle, _tvb, _offset, len,
 			      _reflection->GetRepeatedBool( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_ENUM:
       enumDesc = _reflection->GetRepeatedEnum( *_message, field, index );
       len+= WireFormatLite::EnumSize( enumDesc->number() );
-      proto_tree_add_int_format_value( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_int_format_value( _leaf, handles->handle, _tvb, _offset, len, 
 				       enumDesc->number(), "%d ( %s )", enumDesc->number(),
 				       enumDesc->name().c_str() );
       break;
     case FieldDescriptor::CPPTYPE_STRING:
       len+= WireFormatLite::StringSize( _reflection->GetRepeatedStringReference( *_message, field, index, &scratch ) );
-      proto_tree_add_string( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_string( _leaf, handles->handle, _tvb, _offset, len,  
 			     _reflection->GetRepeatedString( *_message, field, index ).c_str() );
       break;
     default:
-      proto_tree_add_item( _leaf, handles.handle, _tvb, _offset, len, true );
+      proto_tree_add_item( _leaf, handles->handle, _tvb, _offset, len, true );
     };
 
     _offset+=len;
@@ -733,13 +733,13 @@ void |PLUGIN_NAME|_MessageConfig::register_proto( int proto )
     const FieldDescriptor* fieldDescriptor = fieldDescriptorList.back();
     fieldDescriptorList.pop_back();
 
-    Handles handles;
+    Handles *handles = new Handles();
     DBG( "Register field ( " << fieldDescriptor->name() << " : " << fieldDescriptor->full_name() << " )" );
     wireshark_pb_process_|PLUGIN_NAME|_register_field( proto, 
 						       wireshark_pb_process_|PLUGIN_NAME|_get_type( fieldDescriptor->cpp_type() ),
 						       fieldDescriptor->name().c_str(),
 						       fieldDescriptor->name().c_str(),
-						       &(handles.handle) );
+						       &(handles->handle) );
     handleMap->insert( StringHandlePair( fieldDescriptor->full_name(), handles ) );
   }
 

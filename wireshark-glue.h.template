@@ -104,8 +104,8 @@ class Importer;
 class |PLUGIN_NAME|_Dissector;
 struct Handles;
 
-typedef std::pair<std::string, Handles> StringHandlePair;
-typedef std::map<std::string, Handles> HandleMap;
+typedef std::pair<std::string, Handles*> StringHandlePair;
+typedef std::map<std::string, Handles*> HandleMap;
 
 typedef std::vector<const google::protobuf::Descriptor*> DescriptorList;
 typedef std::vector<const google::protobuf::FieldDescriptor*> FieldDescriptorList;
@@ -230,7 +230,13 @@ typedef struct Handles
    int handle;
    int * tree_handle;
 
-   Handles() : handle( -1 ), tree_handle( NULL ) {}
+   Handles() : handle( -1 ), tree_handle( NULL ) {
+      tree_handle = new int;
+   }
+
+   ~Handles() {
+      delete tree_handle;
+   }
 } Handles;
 
 #define DBG( x ) { std::cout << x << std::endl; }

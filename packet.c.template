@@ -147,23 +147,13 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_subtree( int proto, const char*
                 }
         };
   
-  int * tree_handle;
-  
   hf_register_info *hf_info = malloc(sizeof( hf_register_info ) );  
 
   *hf_info = message_info;
 
   proto_register_field_array( proto, hf_info, 1 );
 
-  tree_handle = malloc( sizeof(int) );
-
-  // need to initialize otherwise wireshark
-  // will throw an error
-  *tree_handle = -1;
-
-  proto_register_subtree_array( &tree_handle, 1 );
-
-  *p_tree_handle = tree_handle;
+  proto_register_subtree_array( p_tree_handle, 1 );
 }
 
 void wireshark_pb_process_|PLUGIN_NAME|_register_field( int proto, int type,
