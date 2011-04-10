@@ -232,6 +232,11 @@ typedef struct Handles
 
    Handles() : handle( -1 ), tree_handle( NULL ) {
       tree_handle = new int;
+
+      // this needs to be initialized to -1
+      // otherwise wireshark reports an error
+      // mainly on 64bit platforms
+      *tree_handle = -1;
    }
 
    ~Handles() {
