@@ -1,3 +1,12 @@
+Version Runtime Dissector 0.1 (April 04, 2011)
+-----------------------------------------------
+1. Dissector now parses proto files at runtime. This has made it general so as
+   to avoid having to generate a new dissector for each separate message. The old 
+   method of generating dissector is still ok(as has problem describe in #2)
+   but NO FURTHER DEVELOPMENT is planned. 
+2. Fixed problem with dissector when using 64 bit machines.
+3. Fix for protobuf int64 types. 
+   
 Version 0.5 (April 30, 2010)
 -------------------------------
 
