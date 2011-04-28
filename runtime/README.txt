@@ -4,18 +4,7 @@ Dilip Antony Joseph (dilip.antony.joseph at gmail.com)
 Dear Chap ( dear.chap at gmail.com)
 http://code.google.com/p/protobuf-wireshark/
 
-Version 0.4 (March 31, 2010)
-
-
-We can generate two types of Wireshark dissector plugins:
-
-A. Specific - Displays the Message as [field name:value] pairs.
-   This option requires the .proto file for the specific protocol.
-
-B. Generic - Displays a Message as [numeric field id:value] pairs. 
-   This option does not require the .proto file.
-   Requires protobuf-2.0.1 or higher.
-
+Version Runtime 0.1 (April 10, 2011)
 
 NOTATION
 ========
@@ -42,93 +31,58 @@ d. $ make install  (This will take a while)
 e. WINSTALL_DIR/bin contains the wireshark you just compiled.  Start it up and
 make sure it works fine.
 
-
-A. Specific Message Dissector
-##############################
-
 Step 2: Prepare Protocol Buffers
 ================================
-Run protoc on the addressbook.proto file to generate addressbook.pb.cc and
-addressbook.pb.h (Or just run "make cpp" in the examples subdirectory). Refer
-protoc documentation.  We assume that libprotobuf is installed in a well-known
-location.
+We assume that libprotobuf is installed in a well-known location.
 
-Step 3: Create plugin configuration file
+Step 3: Updating wireshark configuration file
 ========================================
-Example: addressbook.conf
-
-name                  : AddressBook
-package               : tutorial
-proto_file            : /home/danjo/work/protobuf-2.0.0beta/examples/addressbook.proto
 wireshark_src_dir     : /home/danjo/work/pb_ethereal/wireshark-1.0.2
 wireshark_install_dir : /home/danjo/work/pb_ethereal/wireshark-bin
 wireshark_version     : 1.0.2
-port_num              : 33445
 
-a. name                   :   The name of the top-level message we are 
-                              interested in, i.e., AddressBook in this example.
-b. package                :   The package definition in  the .proto file[optional]
-c. proto_file             :   Absolute path to all .proto files
 d. wireshark_src_dir      :   Absolute path to the wireshark source files
                               directory, i.e., WSRC_DIR
 e. wireshark_install_dir  :   Absolute path to the directory in wireshark is
                               installed, i.e., WINSTALL_DIR[optional]
 f. wireshark_version      :   1.0.2 or whatever other version you are using
-g. port_num               :   Space separated list of port numbers. 
-                              Wireshark will automatically try to decode UDP
-                              packets with given port numbers as AddressBook
-                              messages.  If none are provided, port num is 
-                              set to default value of 60000.
 
 Step 4: Run make_wireshark_plugin.py
 ====================================
 a. $ cd CURR_DIR
-b. $ ./make_wireshark_plugin.py addressbook.conf
+b. $ ./make_wireshark_plugin.py wireshark.conf
 c. Watch out for any errors.
 
-Step 5: Done
+Step 5: Create proto configuration files
+========================================
+All proto configuration files need to be in /usr/share/wireshark/protobuf or
+$HOME/.wireshark/protobuf. The former is choosen if it exists otherwise we default to the
+latter. A sample configuration file is given below
+
+Example: addressbook.conf
+
+name                  = AddressBook
+proto_file            = /home/danjo/work/protobuf-2.0.0beta/examples/addressbook.proto
+udp_port              = 33445
+
+This tells the dissector that protobuf message name is AddressBook. The proto file that the message is
+defined in is given by the "proto_file" field. The udp_port denotes the source or destination
+port to register the message on. Multiple conf files, one for each message, can be defined. 
+All proto files are consider relative to the conf directory unless an absolute path is given.  The 
+format of conf file is
+
+name                  = [message name]
+proto_file            = [path to proto file]
+[src_|dst_]udp_port              = < src or dst or any udp ports separated by commas >
+
+Step 6: Done
 ============
-a. Start wireshark and check if AddressBook shows in "Analyze >> Enabled
+a. Start wireshark and check if Protobuf shows in "Analyze >> Enabled
 Protocls" menu.
-b. Send some UDP packets with AddressBook in the payload.
+b. Send some UDP packets with AddressBook in the payload by executing python addressbook_test.py
 c. Check if they are correctly decoded.
 d. If not, try forcefully decoding as "AddressBook" using the "Decode As"
 popup menu item.
 e. If it still does not work, please email the author.
 
-
-
-B. Generic Message Dissector
-############################
-
-Step 2: Edit CURR_DIR/generic-dissector/generic.conf
-=====================================================
-Refer Step 3 of Specific Dissector instructions.
-
-
-Step 3: Edit WSRC_DIR/configure.in and WSRC_DIR/plugins/Makefile.am
-===================================================================
-WSRC_DIR/configure.in         : Add "plugins/GoogleProtoBuf/Makefile" line 
-                                to AC_OUTPUT
-WSRC_DIR/plugins/Makefile.am  : Add "GoogleProtoBuf" line to SUBDIRS
-
-
-Step 4: Run make_generic.py
-===========================
-a. $ cd CURR_DIR/generic-dissector
-b. $ ./make_generic.py generic.conf
-c. Watch out for any errors.
-
-
-Step 5: Done
-============
-a. Start wireshark and check if GoogleProtoBuf shows in "Analyze >> Enabled
-Protocls" menu.
-b. Send some UDP packets with any Protobuf generated message in the payload 
-in the payload.
-c. Check if they are correctly decoded.
-d. If not, try forcefully decoding as "GoogleProtoBuf" using the "Decode As"
-popup menu item.
-e. If it still does not work, please email the author.
-
-
+Note. The generic dissector code is still present but unsupported at this point. It will be removed from trunk soon

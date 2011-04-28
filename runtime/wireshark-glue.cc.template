@@ -1,13 +1,16 @@
-#include "|PROTO_H_FILE|"
 #include "|GLUE_H_FILE|"
 
 #include <iostream>
+#include <dirent.h>
+#include <fstream>
 
 #include <google/protobuf/text_format.h>
 #include <google/protobuf/wire_format.h>
 #include <google/protobuf/wire_format_lite.h>
 #include <google/protobuf/wire_format_lite_inl.h>
 #include <google/protobuf/io/coded_stream.h>
+#include <google/protobuf/compiler/importer.h>
+#include <google/protobuf/dynamic_message.h>
 
 using namespace std;
 using namespace google;
@@ -17,6 +20,8 @@ using namespace internal;
 extern "C" {
 
 static HandleMap* handleMap = NULL;
+static MessageConfigList messageConfigList;
+static google::protobuf::compiler::Importer* importer = NULL;
 
 static void * _tvb = NULL;
 
@@ -28,53 +33,28 @@ static const char ARRAY_FORMAT[] = "%s[%d]";
   * @param tree_root The WireShark tree to which this message is to be added.
   * @param item_id Internal wireshark id to refer to this FT_NONE datatype.
   */
-int wireshark_pb_process_|PLUGIN_NAME|(proto_tree* tree_root, int item_id, tvbuff_t* tvb, void* buf, int buf_size) {
-
-  |PACKAGE||PLUGIN_NAME| msg;
-  if (!msg.ParseFromArray((char *) buf, buf_size)) {
-    DBG_ERR( "Failed to parse message." );
-    /*
-    for (int i=0; i < buf_size; i++) {
-      printf("%2x ", ((char *)buf)[i]);
-    }
-    */
-    /*
-    printf("buf size=%d\n", buf_size);
-    printf("%s\n\n\n", buf);
-    */
-    return -1;
-  }
-
-  // store tvb for subsequent calls
-  _tvb = tvb;
-
-  int offset = 0; 
-
-  DissectorList dissectorList;
-
-  // we process the message tree breadth wise
-  dissectorList.push_back( |PLUGIN_NAME|_Dissector( tree_root, offset, &msg, NULL ) );
-  
-  while ( !dissectorList.empty() )
+int wireshark_pb_process_|PLUGIN_NAME|(proto_tree* tree_root, int srcport, int dstport, int item_id, tvbuff_t* tvb, void* buf, int buf_size) 
+{
+  for( MessageConfigList::iterator it = messageConfigList.begin(); it != messageConfigList.end(); it++ )
   {
-    |PLUGIN_NAME|_Dissector dissector = dissectorList.front();
-    dissectorList.pop_front();
-
-    // this can add further entries to message dissector list
-    dissector.dissect( dissectorList );
-  } // while( !dissectorList.empty() )
-
-  return 0;
+      if( (*it)->matchesSrcPort( srcport ) ||
+	  (*it)->matchesDestPort( dstport ) )
+      {
+          return (*it)->dissect( tree_root, item_id, tvb, buf, buf_size ); 
+      } 
+  }
+  DBG_ERR("Failed to find match");
+  return -1;
 }
 
 void wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( int proto, 
 							   const std::string& name,
 							   const std::string& full_name )
 {
-   Handles handles;
+   Handles *handles = new Handles();
    wireshark_pb_process_|PLUGIN_NAME|_register_subtree( proto,
 							name.c_str(),
-							&(handles.handle), &(handles.tree_handle) );
+							&(handles->handle), &(handles->tree_handle) );
    handleMap->insert( StringHandlePair( full_name, handles ) );
 }
 
@@ -110,62 +90,61 @@ int wireshark_pb_process_|PLUGIN_NAME|_get_type( FieldDescriptor::CppType type )
   return FT_NONE;
 }
 
-void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
+void wireshark_pb_process_|PLUGIN_NAME|_register_ports()
 {
-  if( handleMap == NULL )
-  {
-    handleMap = new HandleMap();
-  }
-
-  DescriptorList messageDescriptorList;
-  FieldDescriptorList fieldDescriptorList;
-  
-  // we process the message definition depth first
-  const Descriptor* desc = |PACKAGE||PLUGIN_NAME|::descriptor();
-
-  messageDescriptorList.push_back( desc );
-  
-  while( !messageDescriptorList.empty() )
-  {
-    const Descriptor* messageDescriptor = messageDescriptorList.back();
-    messageDescriptorList.pop_back();    
-    
-    DBG( "Register message ( " << messageDescriptor->name() << " )" );
-    
-    wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( proto, 
-							  messageDescriptor->name(), 
-							  messageDescriptor->full_name() );
-    
-    for( int i = 0; i < messageDescriptor->field_count(); i++ )
+    for( MessageConfigList::iterator it = messageConfigList.begin(); it != messageConfigList.end(); it++ )
     {
-      const FieldDescriptor* fieldDescriptor = messageDescriptor->field( i );
-      
-      if( fieldDescriptor->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE )
-      {
-	messageDescriptorList.push_back( fieldDescriptor->message_type() );
-      }
-      else
-      {
-	fieldDescriptorList.push_back( fieldDescriptor );
-      }
+        (*it)->register_ports();
     }
-  }
-  
-  // process all field descriptors at very end
-  while( !fieldDescriptorList.empty() )
-  {
-    const FieldDescriptor* fieldDescriptor = fieldDescriptorList.back();
-    fieldDescriptorList.pop_back();
+}
 
-    Handles handles;
-    DBG( "Register field ( " << fieldDescriptor->name() << " : " << fieldDescriptor->full_name() << " )" );
-    wireshark_pb_process_|PLUGIN_NAME|_register_field( proto, 
-						       wireshark_pb_process_|PLUGIN_NAME|_get_type( fieldDescriptor->cpp_type() ),
-						       fieldDescriptor->name().c_str(),
-						       fieldDescriptor->name().c_str(),
-						       &(handles.handle) );
-    handleMap->insert( StringHandlePair( fieldDescriptor->full_name(), handles ) );
-  }
+void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto, const char* dirname )
+{
+    if( dirname == NULL )
+    {
+        DBG_ERR( "couldnt get dirname "); 
+        return;
+    }
+    DIR* dir = opendir( dirname );
+    if( dir == NULL )
+    {
+        DBG_ERR( "couldnt open " << dirname );
+        return;
+    }
+    dirent* dp;
+    std::string configFileExtension( ".conf" );
+    std::string protoFileExtension( ".proto" );
+
+    while( ( dp = readdir( dir ) ) != NULL )
+    {
+        std::string filename( dp->d_name );
+
+        size_t i = filename.rfind( configFileExtension );
+
+        if( ( i != std::string::npos ) && ( i == filename.length() - configFileExtension.length() ) )
+        {
+	    |PLUGIN_NAME|_MessageConfig* messageConfig = new |PLUGIN_NAME|_MessageConfig( filename, dirname );
+
+	    if( messageConfig->isValid() )
+	    {
+	        messageConfigList.push_back( messageConfig );
+
+	        messageConfig->register_proto( proto );
+	    }
+        }
+
+        //const FileDescriptor* fileDesc = importer->Import( filename );
+        //
+        //for( int i = 0; i < fileDesc->message_type_count(); i++ )
+        //{
+        //    const Descriptor* desc = fileDesc->message_type( i );
+        //    std::string configFileName = desc->name() + ".config"; 
+        //
+        //    // check if desc->name() | .config exists TBD
+        //    messageConfigList.push_back( new |PLUGIN_NAME|_MessageConfig( configFileName, desc ) );
+        //}
+    }
+    closedir( dir );
 }
 
 |PLUGIN_NAME|_Dissector::|PLUGIN_NAME|_Dissector()
@@ -219,24 +198,24 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto )
       return;
     }
 
-    Handles handles = it->second;
+    Handles *handles = it->second;
 
     // add a subtree for current message
     proto_item* item;
     if( index == -1 )
     {
-      item = proto_tree_add_none_format( tree, handles.handle, _tvb, 
+      item = proto_tree_add_none_format( tree, handles->handle, _tvb, 
 					 _offset, _len, 
 					 label.c_str() );
     }
     else
     {
-      item = proto_tree_add_none_format( tree, handles.handle, _tvb, 
+      item = proto_tree_add_none_format( tree, handles->handle, _tvb, 
 					 _offset, _len, ARRAY_FORMAT, 
 					 label.c_str(), index );
       
     }
-    _leaf = proto_item_add_subtree( item, *(handles.tree_handle) );
+    _leaf = proto_item_add_subtree( item, *(handles->tree_handle) );
 }
 
 void |PLUGIN_NAME|_Dissector::dissect( DissectorList& dissectorList )
@@ -323,52 +302,52 @@ void |PLUGIN_NAME|_Dissector::dissectField( const FieldDescriptor* field )
       return;
     }
 
-    Handles handles = it->second;
+    Handles *handles = it->second;
 
     const EnumValueDescriptor* enumDesc = NULL;
 
     switch( field->cpp_type() )
     {
     case FieldDescriptor::CPPTYPE_UINT32:
-      proto_tree_add_uint( _leaf, handles.handle, _tvb, _offset, len,
+      proto_tree_add_uint( _leaf, handles->handle, _tvb, _offset, len,
 			   _reflection->GetUInt32( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_INT32:
-      proto_tree_add_int( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_int( _leaf, handles->handle, _tvb, _offset, len, 
 			  _reflection->GetInt32( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_FLOAT:
-      proto_tree_add_float( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_float( _leaf, handles->handle, _tvb, _offset, len, 
 			    _reflection->GetFloat( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
-      proto_tree_add_uint64( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_uint64( _leaf, handles->handle, _tvb, _offset, len, 
 			     _reflection->GetUInt64( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_INT64:
-      proto_tree_add_int64( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_int64( _leaf, handles->handle, _tvb, _offset, len, 
 			    _reflection->GetInt64( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_DOUBLE:
-      proto_tree_add_double( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_double( _leaf, handles->handle, _tvb, _offset, len, 
 			     _reflection->GetDouble( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
-      proto_tree_add_boolean( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_boolean( _leaf, handles->handle, _tvb, _offset, len, 
 			      _reflection->GetBool( *_message, field ) );
       break;
     case FieldDescriptor::CPPTYPE_ENUM:
       enumDesc = _reflection->GetEnum( *_message, field );
-      proto_tree_add_int_format_value( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_int_format_value( _leaf, handles->handle, _tvb, _offset, len, 
 				       enumDesc->number(), "%d ( %s )", enumDesc->number(),
 				       enumDesc->name().c_str() );
       break;
     case FieldDescriptor::CPPTYPE_STRING:
-      proto_tree_add_string( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_string( _leaf, handles->handle, _tvb, _offset, len, 
 			     _reflection->GetString( *_message, field ).c_str() );
       break;
     default:
-      proto_tree_add_item( _leaf, handles.handle, _tvb, _offset, len, true );
+      proto_tree_add_item( _leaf, handles->handle, _tvb, _offset, len, true );
     };
 
     _offset+=len;
@@ -395,7 +374,7 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       return;
     }
 
-    Handles handles = it->second;
+    Handles *handles = it->second;
 
     const EnumValueDescriptor* enumDesc = NULL;
 
@@ -410,7 +389,7 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       {
 	len+= WireFormatLite::UInt32Size( _reflection->GetRepeatedUInt32( *_message, field, index )  );      
       }
-      proto_tree_add_uint( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_uint( _leaf, handles->handle, _tvb, _offset, len,  
 			   _reflection->GetRepeatedUInt32( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_INT32:
@@ -426,12 +405,12 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       {
 	len+= WireFormatLite::Int32Size( _reflection->GetRepeatedInt32( *_message, field, index )  );	
       }
-      proto_tree_add_int( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_int( _leaf, handles->handle, _tvb, _offset, len,  
 			  _reflection->GetRepeatedInt32( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_FLOAT:
       len+= WireFormatLite::kFloatSize;
-      proto_tree_add_float( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_float( _leaf, handles->handle, _tvb, _offset, len,  
 			    _reflection->GetRepeatedFloat( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
@@ -443,7 +422,7 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       {
 	len+= WireFormatLite::UInt64Size( _reflection->GetRepeatedUInt64( *_message, field, index )  );	
       }
-      proto_tree_add_uint64( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_uint64( _leaf, handles->handle, _tvb, _offset, len,  
 			     _reflection->GetRepeatedUInt64( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_INT64:
@@ -459,38 +438,311 @@ void |PLUGIN_NAME|_Dissector::dissectRepeatedField( const FieldDescriptor* field
       {
 	len+= WireFormatLite::Int64Size( _reflection->GetRepeatedInt64( *_message, field, index )  );	
       }
-      proto_tree_add_int64( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_int64( _leaf, handles->handle, _tvb, _offset, len,  
 			    _reflection->GetRepeatedInt64( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_DOUBLE:
       len+= WireFormatLite::kDoubleSize;
-      proto_tree_add_double( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_double( _leaf, handles->handle, _tvb, _offset, len,  
 			     _reflection->GetRepeatedDouble( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
       len+= WireFormatLite::kBoolSize;
-      proto_tree_add_boolean( _leaf, handles.handle, _tvb, _offset, len,
+      proto_tree_add_boolean( _leaf, handles->handle, _tvb, _offset, len,
 			      _reflection->GetRepeatedBool( *_message, field, index ) );
       break;
     case FieldDescriptor::CPPTYPE_ENUM:
       enumDesc = _reflection->GetRepeatedEnum( *_message, field, index );
       len+= WireFormatLite::EnumSize( enumDesc->number() );
-      proto_tree_add_int_format_value( _leaf, handles.handle, _tvb, _offset, len, 
+      proto_tree_add_int_format_value( _leaf, handles->handle, _tvb, _offset, len, 
 				       enumDesc->number(), "%d ( %s )", enumDesc->number(),
 				       enumDesc->name().c_str() );
       break;
     case FieldDescriptor::CPPTYPE_STRING:
       len+= WireFormatLite::StringSize( _reflection->GetRepeatedStringReference( *_message, field, index, &scratch ) );
-      proto_tree_add_string( _leaf, handles.handle, _tvb, _offset, len,  
+      proto_tree_add_string( _leaf, handles->handle, _tvb, _offset, len,  
 			     _reflection->GetRepeatedString( *_message, field, index ).c_str() );
       break;
     default:
-      proto_tree_add_item( _leaf, handles.handle, _tvb, _offset, len, true );
+      proto_tree_add_item( _leaf, handles->handle, _tvb, _offset, len, true );
     };
 
     _offset+=len;
 
 }
 
+class ErrorCollector 
+      : public protobuf::compiler::MultiFileErrorCollector 
+{ 
+    // Implementation of MultiFileErrorCollector interface. 
+
+    void AddError(const string & filename, int line, int column, const string & message)
+    {
+        DBG( "Error in file " << filename << " at line/col:" << line << "/" << column 
+	    << message );
+    }
+}; 
+
+|PLUGIN_NAME|_MessageConfig::|PLUGIN_NAME|_MessageConfig()
+   : _desc( NULL )
+{
+}
+
+|PLUGIN_NAME|_MessageConfig::|PLUGIN_NAME|_MessageConfig( const std::string& filename, const std::string& dirname )
+   : _desc( NULL )
+{
+    parseConfigFile( filename, dirname );
+}
+
+int |PLUGIN_NAME|_MessageConfig::dissect(proto_tree* tree_root, int item_id, tvbuff_t* tvb, void* buf, int buf_size)
+{
+    DynamicMessageFactory factory;
+    Message* msg = factory.GetPrototype( _desc )->New();
+    if (!msg->ParseFromArray((char *) buf, buf_size)) {
+       DBG_ERR( "Failed to parse message." );
+       /*
+       for (int i=0; i < buf_size; i++) {
+       	printf("%2x ", ((char *)buf)[i]);
+    }
+    */
+    /*
+    printf("buf size=%d\n", buf_size);
+    printf("%s\n\n\n", buf);
+    */
+    return -1;
+  }
+
+  // store tvb for subsequent calls
+  _tvb = tvb;
+
+  int offset = 0; 
+
+  DissectorList dissectorList;
+
+  // we process the message tree breadth wise
+  dissectorList.push_back( |PLUGIN_NAME|_Dissector( tree_root, offset, msg, NULL ) );
+  
+  while ( !dissectorList.empty() )
+  {
+    |PLUGIN_NAME|_Dissector dissector = dissectorList.front();
+    dissectorList.pop_front();
+
+    // this can add further entries to message dissector list
+    dissector.dissect( dissectorList );
+  } // while( !dissectorList.empty() )
+
+  return 0;
+}
+
+void Tokenize(const std::string& str,
+	      std::vector<std::string>& tokens,
+	      const std::string& delimiters = " ")
+{
+    // Skip delimiters at beginning.
+    std::string::size_type lastPos = str.find_first_not_of(delimiters, 0);
+    // Find first "non-delimiter".
+    std::string::size_type pos     = str.find_first_of(delimiters, lastPos);
+
+    while (std::string::npos != pos || std::string::npos != lastPos)
+    {
+        // Found a token, add it to the vector.
+        tokens.push_back(str.substr(lastPos, pos - lastPos));
+        // Skip delimiters.  Note the "not_of"
+        lastPos = str.find_first_not_of(delimiters, pos);
+        // Find next "non-delimiter"
+        pos = str.find_first_of(delimiters, lastPos);
+    }
+}
+
+bool |PLUGIN_NAME|_MessageConfig::isValid()
+{
+    return ( _desc != NULL );
+}
+
+bool |PLUGIN_NAME|_MessageConfig::matchesDestPort( int port )
+{
+    return matchesPort( _dstPorts, port );
+}
+
+bool |PLUGIN_NAME|_MessageConfig::matchesSrcPort( int port )
+{
+    return matchesPort( _srcPorts, port );
+}
+
+bool |PLUGIN_NAME|_MessageConfig::matchesPort( PortList& portList, int port )
+{
+    for( PortList::iterator it = portList.begin(); it != portList.end(); it++ )
+    {
+        if( *it == port ) return true; 
+    }
+
+    return false;
+}
+
+void |PLUGIN_NAME|_MessageConfig::parseConfigFile( const std::string& filename, const std::string& dirname )
+{
+    std::ifstream infile;
+    
+    infile.open( ( dirname + "/" + filename ).c_str() );
+  
+    if( infile.fail() )
+    {
+        DBG_ERR( "Failed to open " << filename << "in dir " << dirname );
+	return;
+    }
+    std::string line;
+    std::string message_name;
+    
+    while( !infile.eof() )
+    {
+	std::getline( infile, line );
+
+	// skip lines beginning with #
+	if( line[0] == '#' ) continue;
+	
+	std::vector<std::string> tokens;
+	
+	Tokenize( line, tokens, " =" );
+
+        //DBG( "Found " << tokens.size() << " tokens" );
+
+	// skip lines which have less that 2 tokens
+        if( tokens.size() < 2 ) continue;
+	
+        if( tokens[0] == "name" )
+        {
+	    message_name = tokens[1];
+	    continue;
+	}
+
+        if( tokens[0] == "proto_file" )
+        {
+            if( importer == NULL )
+            {
+	        protobuf::compiler::DiskSourceTree *sourceTree = new protobuf::compiler::DiskSourceTree();
+		static ErrorCollector* errorCollector = new ErrorCollector();
+		sourceTree->MapPath( "", dirname );
+                importer = new protobuf::compiler::Importer( sourceTree, errorCollector );
+            }
+
+	    DBG( "filename to import " << tokens[1] );
+            const FileDescriptor* fileDesc = importer->Import( tokens[1] );
+ 
+            if( fileDesc == NULL )
+            {
+                DBG_ERR("Unable to parse " << tokens[1] );
+                continue;
+            } 
+	    DBG( "searching for message " << message_name );
+	    //for( int i = 0; i < fileDesc->message_type_count(); i++ )
+	    //{
+	    //    DBG(" message " << fileDesc->message_type( i )->name() );
+	    //}
+            _desc = fileDesc->FindMessageTypeByName( message_name );
+            continue;
+        }
+
+        bool src_port = false;
+        bool dst_port = false;
+        bool both_ports = false;
+	
+	src_port = ( tokens[0] == "src_udp_port" );
+	dst_port = ( tokens[0] == "dst_udp_port" );
+	both_ports = ( tokens[0] == "udp_port" );
+	
+	for( int i = 1; i < tokens.size(); i++ )
+	{
+	    int port = atoi( tokens[i].c_str() );
+	    if( src_port || both_ports )
+	    {
+		_srcPorts.push_back( port );
+	    }
+	    if( dst_port || both_ports )
+	    {
+		_dstPorts.push_back( port );
+	    }
+	}    
+    }
+
+    infile.close();
+
+    if( _desc == NULL )
+    {
+        DBG_ERR( "Couldnt get descriptor from " << filename );
+        _dstPorts.clear();
+        _srcPorts.clear();
+    }
+}
+
+void |PLUGIN_NAME|_MessageConfig::register_ports()
+{
+    register_ports( _srcPorts );
+    register_ports( _dstPorts );
+}
+
+void |PLUGIN_NAME|_MessageConfig::register_ports( PortList& portList )
+{
+    for( PortList::iterator it = portList.begin(); it != portList.end(); it++ )
+    {
+        wireshark_pb_process_protobuf_dissector_add( "udp.port", *it );
+    }
+}
+
+void |PLUGIN_NAME|_MessageConfig::register_proto( int proto )
+{
+  if( handleMap == NULL )
+  {
+    handleMap = new HandleMap();
+  }
+
+  DescriptorList messageDescriptorList;
+  FieldDescriptorList fieldDescriptorList;
+
+  // we process the message definition depth first
+  messageDescriptorList.push_back( _desc );
+  
+  while( !messageDescriptorList.empty() )
+  {
+    const Descriptor* messageDescriptor = messageDescriptorList.back();
+    messageDescriptorList.pop_back();    
+    
+    DBG( "Register message ( " << messageDescriptor->name() << " )" );
+    
+    wireshark_pb_process_|PLUGIN_NAME|_register_subtree_( proto, 
+							  messageDescriptor->name(), 
+							  messageDescriptor->full_name() );
+    
+    for( int i = 0; i < messageDescriptor->field_count(); i++ )
+    {
+      const FieldDescriptor* fieldDescriptor = messageDescriptor->field( i );
+      
+      if( fieldDescriptor->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE )
+      {
+	messageDescriptorList.push_back( fieldDescriptor->message_type() );
+      }
+      else
+      {
+	fieldDescriptorList.push_back( fieldDescriptor );
+      }
+    }
+  }
+  
+  // process all field descriptors at very end
+  while( !fieldDescriptorList.empty() )
+  {
+    const FieldDescriptor* fieldDescriptor = fieldDescriptorList.back();
+    fieldDescriptorList.pop_back();
+
+    Handles *handles = new Handles();
+    DBG( "Register field ( " << fieldDescriptor->name() << " : " << fieldDescriptor->full_name() << " )" );
+    wireshark_pb_process_|PLUGIN_NAME|_register_field( proto, 
+						       wireshark_pb_process_|PLUGIN_NAME|_get_type( fieldDescriptor->cpp_type() ),
+						       fieldDescriptor->name().c_str(),
+						       fieldDescriptor->name().c_str(),
+						       &(handles->handle) );
+    handleMap->insert( StringHandlePair( fieldDescriptor->full_name(), handles ) );
+  }
+
+}
 
 }

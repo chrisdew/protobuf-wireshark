@@ -43,16 +43,9 @@ def process_template(template_file, outfile_path):
   for line in infile:
     line = rePLUGIN_NAME.sub(plugin_name, line)
     line = rePLUGIN_NAME_LOWER.sub(plugin_name.lower(), line)
-    line = rePROTO_H_FILE.sub(main_proto_h_file_name, line)
-    line = rePROTO_O_FILE.sub(proto_o_file_names, line)
     line = reGLUE_O_FILE.sub(glue_o_file_name, line)
     line = reGLUE_H_FILE.sub(glue_h_file_name, line)
     line = reGLUE_H_DEFINE_NAME.sub(glue_h_define_name, line)
-    line = rePORT_NUM.sub(port_num, line)
-    if (proto_package and not (proto_package == "")):
-      line = rePACKAGE.sub(proto_package + '::', line)
-    else:
-      line = rePACKAGE.sub('', line)
 
     outfile.write(line)
       
@@ -68,14 +61,7 @@ if len(sys.argv) != 2:
 
 plugin_conf = read_config(sys.argv[1])
 
-plugin_name = plugin_conf['name']
-if plugin_conf.has_key('port_num'): 
-  port_nums = plugin_conf['port_num']
-  port_nums_list = port_nums.split()
-  port_nums_comma_list = [ ',\n  ' + item for item in port_nums_list[1:] ]
-  port_num = '  ' + port_nums_list[0] + ''.join( port_nums_comma_list ) 
-else: 
-  port_num = '  ' + '60000'
+plugin_name = "protobuf"
 
 print 'Generating Wireshark plugin for ', plugin_name
 
@@ -87,14 +73,7 @@ plugin_dir = wireshark_src_dir + '/plugins/' + plugin_name
 
 if not os.path.exists(plugin_dir): os.mkdir(plugin_dir)
 
-proto_files = plugin_conf['proto_file'].split()
-proto_o_file_names = ''
-for proto_file in proto_files:
-  proto_o_file_names = proto_o_file_names + ' ' + os.path.splitext(os.path.basename(proto_file))[0] + '.pb.o'
-main_proto_h_file_name = os.path.splitext(os.path.basename(proto_files[0]))[0] + '.pb.h'
-proto_dir = os.path.dirname(proto_files[0])
-proto_package = plugin_conf['package']
-
+proto_dir = "."
 glue_file_name = 'wireshark-glue-' + plugin_name + '.cc'
 glue_o_file_name = os.path.splitext(glue_file_name)[0] + '.o'
 glue_h_file_name = os.path.splitext(glue_file_name)[0] + '.h'
@@ -146,24 +125,12 @@ os.chdir(curr_dir)
 # Compile the glue code
 os.chdir(proto_dir)
 if os.path.exists(glue_o_file_name): os.remove(glue_o_file_name)
-os.system('c++ -fPIC -c ' + glue_file_name)
+os.system('c++ -fPIC -g -c ' + glue_file_name)
 if not os.path.exists(glue_o_file_name): 
   print "Unable to compile " + glue_file_name
   sys.exit(-1)
 else:
   shutil.copy(proto_dir + '/' + glue_o_file_name, plugin_dir) 
-
-# Compile all the .o's for proto.pb.cc 
-for proto_file in proto_files:
-  proto_o_file_name = os.path.splitext(os.path.basename(proto_file))[0] + '.pb.o'
-  proto_c_file_name = os.path.splitext(os.path.basename(proto_file))[0] + '.pb.cc'
-  if os.path.exists(proto_o_file_name): os.remove(proto_o_file_name)
-  os.system('c++ -fPIC -c ' + proto_c_file_name)
-  if not os.path.exists(proto_o_file_name): 
-    print "Unable to compile " + proto_c_file_name
-    sys.exit(-1)
-  else:
-    shutil.copy(proto_dir + '/' + proto_o_file_name, plugin_dir)
 
 os.chdir(curr_dir)
   

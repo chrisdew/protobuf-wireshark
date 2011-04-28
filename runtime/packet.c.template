@@ -6,6 +6,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/emem.h>
+#include <errno.h>
 #include <string.h>
 
 /* forward reference */
@@ -22,10 +23,6 @@ G_MODULE_EXPORT const gchar version[] = "0.0";
 
 
 static int proto_|PLUGIN_NAME| = -1;
-static int global_|PLUGIN_NAME|_udp_ports[] = 
-{ 
-|PORT_NUM| 
-};
 
 static dissector_handle_t |PLUGIN_NAME|_handle;
 
@@ -33,8 +30,9 @@ static dissector_handle_t |PLUGIN_NAME|_handle;
 static int hf_|PLUGIN_NAME| = -1;
 // Protocol field variables - END
 
-int wireshark_pb_process_|PLUGIN_NAME|(void *tree_root, int item_id, void *tvb,  void *buf, int buf_size);
-void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto );
+int wireshark_pb_process_|PLUGIN_NAME|(void *tree_root, int srcport, int dstport, int item_id, void *tvb,  void *buf, int buf_size);
+void wireshark_pb_process_|PLUGIN_NAME|_register_proto( int proto, const char* dirname );
+void wireshark_pb_process_protobuf_register_ports();
 void wireshark_pb_process_|PLUGIN_NAME|_register_subtree( int proto, const char* name,
                                                 int *handle, int ** tree_handle );
 void wireshark_pb_process_|PLUGIN_NAME|_register_field( int proto, int type,
@@ -66,7 +64,23 @@ void proto_register_|PLUGIN_NAME|(void) {
 		}
 	|PLUGIN_NAME|_module= prefs_register_protocol(proto_|PLUGIN_NAME|, proto_reg_handoff_|PLUGIN_NAME|);
 
-        wireshark_pb_process_|PLUGIN_NAME|_register_proto( proto_|PLUGIN_NAME| );
+        char* dirname = get_persconffile_path("protobuf", FALSE, FALSE);
+
+        if( test_for_directory( dirname ) != EISDIR ) 
+	{
+            /* Although dir isn't a directory it may still use memory */
+            g_free( dirname );
+
+            dirname = get_datafile_path("protobuf");
+
+            if( test_for_directory( dirname ) != EISDIR ) 
+            {
+                g_free( dirname );
+                dirname = NULL;
+            }
+        }
+
+        wireshark_pb_process_|PLUGIN_NAME|_register_proto( proto_|PLUGIN_NAME|, dirname );
 }
 
 
@@ -78,10 +92,7 @@ void proto_reg_handoff_|PLUGIN_NAME| (void) {
 	if (!Initialized) {
 		|PLUGIN_NAME|_handle = create_dissector_handle(dissect_|PLUGIN_NAME|, proto_|PLUGIN_NAME|);
 
-	  
-	        for( ; i < ( sizeof( global_|PLUGIN_NAME|_udp_ports ) / sizeof( global_|PLUGIN_NAME|_udp_ports[0] ) ); i++) {
-		        dissector_add("udp.port", global_|PLUGIN_NAME|_udp_ports[i], |PLUGIN_NAME|_handle);
-		}
+		wireshark_pb_process_protobuf_register_ports();	  
 	}
 }
 /* Register plugin - END */
@@ -107,7 +118,7 @@ static void dissect_|PLUGIN_NAME| (tvbuff_t *tvb, packet_info *pinfo, proto_tree
 	  /* Always make sure that offset is LESS than maxOffset */
 	  gint maxOffset = tvb_length(tvb);
   
-          wireshark_pb_process_|PLUGIN_NAME|((void *) tree, hf_|PLUGIN_NAME|, 
+          wireshark_pb_process_|PLUGIN_NAME|((void *) tree, pinfo->srcport, pinfo->destport, hf_|PLUGIN_NAME|, 
 		(void *)tvb,  (void *)tvb_get_ptr(tvb,0,maxOffset), maxOffset);
 	}
 
@@ -136,26 +147,23 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_subtree( int proto, const char*
                 }
         };
   
-  int * tree_handle;
-  
   hf_register_info *hf_info = malloc(sizeof( hf_register_info ) );  
 
   *hf_info = message_info;
 
   proto_register_field_array( proto, hf_info, 1 );
 
-  tree_handle = malloc( sizeof(int) );
-
-  proto_register_subtree_array( &tree_handle, 1 );
-
-  *p_tree_handle = tree_handle;
+  proto_register_subtree_array( p_tree_handle, 1 );
 }
 
 void wireshark_pb_process_|PLUGIN_NAME|_register_field( int proto, int type,
                                                 const char* name, const char * fullName,
 						int *handle )
 {
-   int base = ((type == FT_UINT32) || (type == FT_UINT64) ) ? BASE_HEX : ( type == FT_INT32) ? BASE_DEC : BASE_NONE;
+   int base = ( ( type == FT_UINT32 ) || ( type == FT_UINT64 ) ) ? BASE_HEX : 
+              ( ( type == FT_INT32 ) || ( type == FT_INT64 ) ) ? BASE_DEC : 
+	      BASE_NONE;
+
    hf_register_info message_info =
         { handle,
                 { (char*)fullName,
@@ -173,4 +181,9 @@ void wireshark_pb_process_|PLUGIN_NAME|_register_field( int proto, int type,
   *hf_info = message_info;
 
    proto_register_field_array( proto, hf_info, 1 );
+}
+
+void wireshark_pb_process_protobuf_dissector_add( const char* name, int port )
+{
+   dissector_add( name, port, |PLUGIN_NAME|_handle );
 }

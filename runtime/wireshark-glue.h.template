@@ -3,6 +3,8 @@
 
 #include <string>
 #include <list>
+#include <map>
+#include <vector>
 
 extern "C" {
 
@@ -77,6 +79,7 @@ extern void wireshark_pb_process_|PLUGIN_NAME|_register_subtree( int proto, cons
 extern void wireshark_pb_process_|PLUGIN_NAME|_register_field( int proto, int type,
                                                 const char* name, const char * fullName,
                                                 int *handle );
+void wireshark_pb_process_protobuf_dissector_add( const char* name, int port );
 
 ///////////////////////////////////////////////////////////////////////////////////
 // rest of definitions are specific to the glue file
@@ -91,14 +94,18 @@ class Descriptor;
 class FieldDescriptor;
 class Message;
 class Reflection;
+namespace compiler
+{
+class Importer;
+}
 }
 }
 
 class |PLUGIN_NAME|_Dissector;
 struct Handles;
 
-typedef std::pair<std::string, Handles> StringHandlePair;
-typedef std::map<std::string, Handles> HandleMap;
+typedef std::pair<std::string, Handles*> StringHandlePair;
+typedef std::map<std::string, Handles*> HandleMap;
 
 typedef std::vector<const google::protobuf::Descriptor*> DescriptorList;
 typedef std::vector<const google::protobuf::FieldDescriptor*> FieldDescriptorList;
@@ -160,12 +167,81 @@ private: // data
 
 };
 
+// this is the class which holds configuration relating to each message defined
+
+class |PLUGIN_NAME|_MessageConfig
+{
+
+public: // methods
+
+  |PLUGIN_NAME|_MessageConfig();
+
+  |PLUGIN_NAME|_MessageConfig( const std::string& filename, const std::string& dirname );
+
+  // dissect the given message buffer
+  int dissect(proto_tree* tree_root, int item_id, tvbuff_t* tvb, void* buf, int buf_size);
+
+  // whether config/descriptor are valid
+  bool isValid();
+ 
+  // whether this message is expected on this destination port
+  bool matchesDestPort( int port );
+
+  // whether this message is expected on this source port
+  bool matchesSrcPort( int port );
+
+  // register all the ports that this message handles
+  void register_ports();
+
+  // register this message with protobuf proto handler
+  void register_proto( int proto );
+
+protected: // types
+
+  typedef std::list<int> PortList;
+
+protected: // methods
+
+  // matches port against particular list
+  bool matchesPort( PortList& portList, int port );
+
+  // parse config file for message
+  void parseConfigFile( const std::string& filename, const std::string& dirname );
+
+  // registers particular ports from port list
+  void register_ports( PortList& portList );
+
+private: // data
+
+  // the message descriptor
+  const google::protobuf::Descriptor* _desc;
+
+  // destination ports
+  PortList  _dstPorts;
+
+  // source ports
+  PortList _srcPorts;
+};
+
+typedef std::list<|PLUGIN_NAME|_MessageConfig*> MessageConfigList;
+
 typedef struct Handles
 {
    int handle;
    int * tree_handle;
 
-   Handles() : handle( -1 ), tree_handle( NULL ) {}
+   Handles() : handle( -1 ), tree_handle( NULL ) {
+      tree_handle = new int;
+
+      // this needs to be initialized to -1
+      // otherwise wireshark reports an error
+      // mainly on 64bit platforms
+      *tree_handle = -1;
+   }
+
+   ~Handles() {
+      delete tree_handle;
+   }
 } Handles;
 
 #define DBG( x ) { std::cout << x << std::endl; }
