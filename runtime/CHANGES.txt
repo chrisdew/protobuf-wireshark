@@ -1,0 +1,22 @@
+Version 0.5 (April 30, 2010)
+-------------------------------
+
+1. Fix for dissector crash when dissecting repeated primitive fields. 
+2. General code cleanup
+
+Version 0.4 (March 31, 2010)
+-------------------------------
+
+1. Fields within protobuf message are mapped to exact position within byte stream
+2. Multiple UDP port numbers can be provided in config file
+
+Version 0.3 (March 23, 2010)
+-------------------------------
+
+1. Specific dissector now has support for collapsible trees under Wireshark. This
+   also gives the ability to filter protobuf messages based on proto field names. 
+2. package/wireshark_install_dir parameters in conf file are now optional. They will
+   be used if present
+3. For specific dissector wireshark/configure.in and wireshark/plugins/Makefile.am neednt
+   be modified to contain plugin name etc. The generating script automatically takes
+   care of adding the correct entries to each file if not already present.
